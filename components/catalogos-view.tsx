@@ -1,0 +1,131 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button, Card, Input } from "@/components/ui";
+import { crearCatalogo, eliminarCatalogo } from "@/lib/actions/catalogos";
+import type { Categoria, Proveedor, Ubicacion } from "@/lib/types";
+import { Plus, Trash2 } from "lucide-react";
+
+type Tabla = "categorias" | "ubicaciones" | "proveedores";
+
+export function CatalogosView({
+  categorias,
+  ubicaciones,
+  proveedores,
+}: {
+  categorias: Categoria[];
+  ubicaciones: Ubicacion[];
+  proveedores: Proveedor[];
+}) {
+  return (
+    <div className="mx-auto max-w-7xl p-4 md:p-8">
+      <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
+        Catálogos
+      </h1>
+      <p className="mb-6 mt-1 text-sm text-muted">
+        Categorías, ubicaciones y proveedores.
+      </p>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <CatalogoCard
+          titulo="Categorías"
+          tabla="categorias"
+          items={categorias}
+        />
+        <CatalogoCard
+          titulo="Ubicaciones"
+          tabla="ubicaciones"
+          items={ubicaciones}
+        />
+        <CatalogoCard
+          titulo="Proveedores"
+          tabla="proveedores"
+          items={proveedores}
+          conContacto
+        />
+      </div>
+    </div>
+  );
+}
+
+function CatalogoCard({
+  titulo,
+  tabla,
+  items,
+  conContacto,
+}: {
+  titulo: string;
+  tabla: Tabla;
+  items: { id: string; nombre: string; contacto?: string | null }[];
+  conContacto?: boolean;
+}) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [cargando, setCargando] = useState(false);
+
+  async function agregar(formData: FormData) {
+    setError(null);
+    setCargando(true);
+    const res = await crearCatalogo(tabla, formData);
+    setCargando(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    (document.getElementById(`form-${tabla}`) as HTMLFormElement)?.reset();
+    router.refresh();
+  }
+
+  async function borrar(id: string) {
+    if (!confirm("¿Eliminar este elemento?")) return;
+    const res = await eliminarCatalogo(tabla, id);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  return (
+    <Card className="flex flex-col p-4">
+      <h2 className="mb-3 font-semibold text-fg">{titulo}</h2>
+
+      <form id={`form-${tabla}`} action={agregar} className="mb-3 space-y-2">
+        <Input name="nombre" placeholder={`Nuevo en ${titulo.toLowerCase()}`} required />
+        {conContacto && (
+          <Input name="contacto" placeholder="Contacto (opcional)" />
+        )}
+        <Button type="submit" className="w-full" disabled={cargando}>
+          <Plus className="h-4 w-4" /> Agregar
+        </Button>
+        {error && (
+          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        )}
+      </form>
+
+      <ul className="divide-y divide-line">
+        {items.length === 0 && (
+          <li className="py-2 text-sm text-faint">Sin elementos</li>
+        )}
+        {items.map((it) => (
+          <li key={it.id} className="flex items-center justify-between py-2">
+            <div>
+              <p className="text-sm text-fg">{it.nombre}</p>
+              {it.contacto && (
+                <p className="text-xs text-faint">{it.contacto}</p>
+              )}
+            </div>
+            <button
+              onClick={() => borrar(it.id)}
+              aria-label="Eliminar"
+              className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}

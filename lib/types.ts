@@ -1,0 +1,337 @@
+// Tipos del dominio (espejo del esquema de la base de datos).
+
+export type Rol = "admin" | "gerente" | "operario";
+export type TipoMovimiento = "entrada" | "salida" | "ajuste";
+
+export interface Profile {
+  id: string;
+  nombre: string;
+  rol: Rol;
+  created_at: string;
+}
+
+export interface Categoria {
+  id: string;
+  nombre: string;
+  created_at: string;
+}
+
+export interface Ubicacion {
+  id: string;
+  nombre: string;
+  created_at: string;
+}
+
+export interface Proveedor {
+  id: string;
+  nombre: string;
+  contacto: string | null;
+  created_at: string;
+}
+
+export interface Material {
+  id: string;
+  sku: string | null;
+  nombre: string;
+  descripcion: string | null;
+  categoria_id: string | null;
+  ubicacion_id: string | null;
+  proveedor_id: string | null;
+  unidad: string;
+  stock_actual: number;
+  stock_minimo: number;
+  // Umbral de aviso ("por agotarse"): avisa antes de llegar al mínimo.
+  // modo "unidad"     -> punto de aviso = stock_minimo + aviso_valor
+  // modo "porcentaje" -> punto de aviso = stock_minimo * (1 + aviso_valor/100)
+  aviso_valor: number;
+  aviso_modo: AvisoModo;
+  // costo_unitario = costo promedio ponderado (WAC) vigente de compra.
+  costo_unitario: number;
+  // precio_venta = precio de venta actual (para margen).
+  precio_venta: number;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type AvisoModo = "unidad" | "porcentaje";
+
+// Receta de producción de un material ("1 ventana = X perfil + Y herrajes").
+// Un solo nivel a propósito: el componente no explota su propia receta.
+export interface BomItem {
+  id: string;
+  producto_id: string;
+  componente_id: string;
+  cantidad_por_unidad: number;
+  created_at: string;
+}
+
+export interface BomItemConMaterial extends BomItem {
+  componente: Pick<Material, "id" | "nombre" | "sku" | "unidad" | "stock_actual">;
+}
+
+// Un material "producible" es cualquiera con al menos un bom_item propio.
+export interface ProducibleConReceta {
+  producto: MaterialConRelaciones;
+  receta: BomItemConMaterial[];
+}
+
+// Nivel de severidad de una alerta de stock.
+export type NivelStock = "ok" | "aviso" | "bajo";
+
+// Material con sus relaciones resueltas (join).
+export interface MaterialConRelaciones extends Material {
+  categorias: Pick<Categoria, "id" | "nombre"> | null;
+  ubicaciones: Pick<Ubicacion, "id" | "nombre"> | null;
+  proveedores: Pick<Proveedor, "id" | "nombre"> | null;
+}
+
+export interface Movimiento {
+  id: string;
+  // Puede quedar null si el material se elimina; el snapshot conserva la info.
+  material_id: string | null;
+  tipo: TipoMovimiento;
+  cantidad: number;
+  usuario_id: string | null;
+  nota: string | null;
+  referencia: string | null;
+  // Snapshot del material al momento del movimiento (historial autónomo).
+  material_nombre: string | null;
+  material_sku: string | null;
+  // Snapshot del costo unitario (WAC) al momento del movimiento.
+  costo_unitario: number | null;
+  // Ubicación donde ocurrió (null = la ubicación por defecto del material).
+  ubicacion_id: string | null;
+  created_at: string;
+}
+
+/* ---------------- Bitácora de auditoría ---------------- */
+
+export type AccionAuditoria = "crear" | "editar" | "eliminar";
+export type EntidadAuditoria =
+  | "material"
+  | "categoria"
+  | "ubicacion"
+  | "proveedor"
+  | "cliente";
+
+export interface Auditoria {
+  id: string;
+  usuario_id: string | null;
+  usuario_nombre: string | null;
+  accion: AccionAuditoria;
+  entidad: EntidadAuditoria;
+  entidad_id: string | null;
+  entidad_nombre: string | null;
+  created_at: string;
+}
+
+/* ---------------- Historial de costos y precios ---------------- */
+
+export type TipoPrecio = "costo" | "venta";
+export type FuentePrecio = "compra" | "manual" | "cotizacion" | "inicial";
+
+export interface HistorialPrecio {
+  id: string;
+  material_id: string | null;
+  material_nombre: string | null;
+  material_sku: string | null;
+  tipo: TipoPrecio;
+  valor: number;
+  fuente: FuentePrecio;
+  proveedor_id: string | null;
+  cantidad: number | null;
+  created_at: string;
+}
+
+export interface MovimientoConRelaciones extends Movimiento {
+  materiales: Pick<Material, "id" | "nombre" | "sku" | "unidad"> | null;
+  profiles: Pick<Profile, "id" | "nombre"> | null;
+  ubicaciones: Pick<Ubicacion, "id" | "nombre"> | null;
+}
+
+/* ---------------- Multi-ubicación ---------------- */
+
+// Desglose de stock de un material por ubicación (con fallback implícito:
+// si un material nunca tuvo un movimiento con ubicación explícita, se
+// muestra una sola fila con su ubicación por defecto y el stock total).
+export interface StockPorUbicacion {
+  ubicacion_id: string | null;
+  ubicacion_nombre: string;
+  stock: number;
+}
+
+export const UNIDADES = ["pza", "m", "kg", "caja", "litro", "rollo"] as const;
+
+/* ---------------- Portal de proveedores ---------------- */
+
+// abierta = alerta activa; descartada = silenciada mientras siga bajo;
+// atendida = resuelta (se creó caso o el stock se recuperó).
+export type EstadoNotificacion = "abierta" | "atendida" | "descartada";
+
+// "aviso" = amarillo (por agotarse); "bajo" = rojo (en o bajo el mínimo).
+export type NivelNotificacion = "aviso" | "bajo";
+
+// "stock" = alerta global de stock bajo (como hoy); "asignacion" = te
+// asignaron un caso/salida pendiente (personal, solo la ve el destinatario).
+export type TipoNotificacion = "stock" | "asignacion";
+
+export interface Notificacion {
+  id: string;
+  // null en notificaciones de tipo "asignacion".
+  material_id: string | null;
+  proveedor_id: string | null;
+  mensaje: string;
+  estado: EstadoNotificacion;
+  // null en notificaciones de tipo "asignacion".
+  nivel: NivelNotificacion | null;
+  tipo: TipoNotificacion;
+  // Destinatario: null = alerta global (visible para todos, como antes).
+  usuario_id: string | null;
+  caso_compra_id: string | null;
+  caso_venta_id: string | null;
+  salida_pendiente_id: string | null;
+  created_at: string;
+  resuelta_at: string | null;
+}
+
+export interface NotificacionConRelaciones extends Notificacion {
+  materiales: Pick<
+    Material,
+    "id" | "nombre" | "sku" | "unidad" | "stock_actual" | "stock_minimo"
+  > | null;
+  proveedores: Pick<Proveedor, "id" | "nombre" | "contacto"> | null;
+}
+
+export type EstadoCasoCompra =
+  | "pendiente"
+  | "cotizando"
+  | "ordenado"
+  | "recibido"
+  | "cancelado";
+
+export const ESTADOS_CASO_COMPRA: EstadoCasoCompra[] = [
+  "pendiente",
+  "cotizando",
+  "ordenado",
+  "recibido",
+  "cancelado",
+];
+
+// manual = creado desde el formulario; stock_bajo = desde una notificación;
+// correo = creado automáticamente por el webhook de email entrante.
+export type OrigenCasoCompra = "manual" | "stock_bajo" | "correo";
+
+export interface CasoCompra {
+  id: string;
+  // null si el proveedor fue eliminado; el snapshot conserva el nombre.
+  proveedor_id: string | null;
+  proveedor_nombre: string | null;
+  material_id: string | null;
+  titulo: string;
+  descripcion: string | null;
+  monto_estimado: number;
+  referencia: string | null; // OC-xxxx
+  estado: EstadoCasoCompra;
+  origen: OrigenCasoCompra;
+  // Al marcar "recibido" se crea la entrada de stock y se enlaza aquí.
+  movimiento_id: string | null;
+  // Persona encargada de darle seguimiento (null = sin asignar).
+  responsable_id: string | null;
+  responsable_nombre: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CasoCompraConRelaciones extends CasoCompra {
+  proveedores: Pick<Proveedor, "id" | "nombre"> | null;
+  materiales: Pick<Material, "id" | "nombre" | "sku"> | null;
+}
+
+/* ---------------- Portal de clientes ---------------- */
+
+export interface Cliente {
+  id: string;
+  nombre: string;
+  contacto: string | null;
+  created_at: string;
+}
+
+export type EstadoCasoVenta =
+  | "cotizacion"
+  | "confirmado"
+  | "en_produccion"
+  | "entregado"
+  | "cancelado";
+
+export const ESTADOS_CASO_VENTA: EstadoCasoVenta[] = [
+  "cotizacion",
+  "confirmado",
+  "en_produccion",
+  "entregado",
+  "cancelado",
+];
+
+export interface CasoVenta {
+  id: string;
+  // null si el cliente fue eliminado; el snapshot conserva el nombre.
+  cliente_id: string | null;
+  cliente_nombre: string | null;
+  titulo: string;
+  descripcion: string | null;
+  monto: number;
+  referencia: string | null; // OV-xxxx
+  estado: EstadoCasoVenta;
+  // Persona encargada de darle seguimiento (null = sin asignar).
+  responsable_id: string | null;
+  responsable_nombre: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CasoVentaItem {
+  id: string;
+  caso_venta_id: string;
+  material_id: string;
+  cantidad: number;
+}
+
+export interface CasoVentaConRelaciones extends CasoVenta {
+  clientes: Pick<Cliente, "id" | "nombre"> | null;
+  items: (CasoVentaItem & {
+    materiales: Pick<
+      Material,
+      "id" | "nombre" | "sku" | "unidad" | "stock_actual"
+    > | null;
+  })[];
+}
+
+// Al entregar un caso de venta se generan salidas pendientes; la salida real
+// (movimiento) solo existe cuando alguien la confirma explícitamente.
+export type EstadoSalidaPendiente = "pendiente" | "registrada" | "cancelada";
+
+export interface SalidaPendiente {
+  id: string;
+  caso_venta_id: string;
+  material_id: string;
+  cantidad: number;
+  estado: EstadoSalidaPendiente;
+  movimiento_id: string | null;
+  // Persona encargada de completar esta salida (null = sin asignar).
+  responsable_id: string | null;
+  responsable_nombre: string | null;
+  created_at: string;
+  resuelta_at: string | null;
+}
+
+export interface SalidaPendienteConRelaciones extends SalidaPendiente {
+  materiales: Pick<
+    Material,
+    "id" | "nombre" | "sku" | "unidad" | "stock_actual"
+  > | null;
+  casos_venta:
+    | (Pick<CasoVenta, "id" | "titulo" | "referencia"> & {
+        cliente_nombre: string | null;
+      })
+    | null;
+}

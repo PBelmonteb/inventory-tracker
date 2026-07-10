@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   Tokens de tema — Minimalismo Swiss
+   Valores como canales RGB para soportar opacidad de Tailwind.
+   ============================================================ */
+:root {
+  /* Modo claro apagado — tono papel cálido, sin brillo que canse la vista */
+  --canvas: 233 229 219; /* beige papel #E9E5DB */
+  --surface: 243 240 232; /* tarjeta suave (no blanco puro) #F3F0E8 */
+  --surface-2: 225 220 208; /* superficie sutil/inset #E1DCD0 */
+  --line: 213 207 194; /* bordes #D5CFC2 */
+  --fg: 38 35 30; /* texto cálido casi-negro #26231E */
+  --muted: 92 86 76; /* texto secundario #5C564C */
+  --faint: 140 133 120; /* texto terciario #8C8578 */
+  --accent: 45 100 73; /* verde profundo #2D6449 */
+  --accent-fg: 243 240 232;
+
+  /* Sidebar — oscuro cálido en ambos modos (firma de la referencia) */
+  --sidebar: 26 24 19; /* #1A1813 */
+  --sidebar-surface: 40 36 29; /* #28241D */
+  --sidebar-fg: 233 229 219;
+  --sidebar-muted: 154 146 132;
+  --sidebar-line: 52 47 38; /* #342F26 */
+
+  color-scheme: light;
+}
+
+.dark {
+  /* Modo oscuro cálido (sepia/café) — calidez del crema, legible */
+  --canvas: 20 17 13; /* café muy oscuro #14110D */
+  --surface: 33 28 22; /* tarjeta cálida #211C16 */
+  --surface-2: 42 36 28; /* superficie sutil #2A241C */
+  --line: 50 43 34; /* borde #322B22 */
+  --fg: 224 218 207; /* texto crema #E0DACF */
+  --muted: 168 160 147; /* secundario cálido */
+  --faint: 128 120 107; /* terciario cálido */
+  --accent: 124 199 154; /* verde claro #7CC79A */
+  --accent-fg: 18 22 14;
+
+  --sidebar: 14 11 7; /* #0E0B07 */
+  --sidebar-surface: 34 28 21; /* #221C15 */
+  --sidebar-fg: 224 218 207;
+  --sidebar-muted: 154 144 130;
+  --sidebar-line: 46 40 32; /* #2E2820 */
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100vw;
+}
+
+body {
+  background: rgb(var(--canvas));
+  color: rgb(var(--fg));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Scrollbar discreta */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line));
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
