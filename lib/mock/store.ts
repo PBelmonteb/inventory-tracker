@@ -37,6 +37,10 @@ import type {
 import { makeSeed, PERFIL_DEMO } from "@/lib/mock/seed-data";
 import { esGestor } from "@/lib/auth";
 import { puntoAviso } from "@/lib/utils";
+import { calcularStockSugerido } from "@/lib/stock-sugerido";
+import { calcularEOQ } from "@/lib/eoq";
+import { evaluarRiesgoStock } from "@/lib/riesgo-stock";
+import type { ResumenReposicionAutomatica } from "@/lib/casos-automaticos";
 
 interface DB {
   profiles: Profile[];
@@ -776,7 +780,8 @@ export const store = {
   crearCatalogo(
     tabla: "categorias" | "ubicaciones" | "proveedores" | "clientes",
     nombre: string,
-    contacto?: string | null
+    contacto?: string | null,
+    diasEntregaDeclarado?: number | null
   ): { id: string } {
     const limpio = nombre.trim();
     if (!limpio) throw new Error("El nombre es obligatorio");
@@ -790,11 +795,27 @@ export const store = {
       ...(tabla === "proveedores" || tabla === "clientes"
         ? { contacto: contacto?.trim() || null }
         : {}),
+      ...(tabla === "proveedores"
+        ? { dias_entrega_declarado: diasEntregaDeclarado ?? null }
+        : {}),
     };
     // @ts-expect-error: unión de tipos de catálogo
     lista.push(item);
     logAudit("crear", ENTIDAD_DE[tabla], item.id, item.nombre);
     return { id: item.id };
+  },
+
+  // Edita el contacto/tiempo de entrega de un proveedor existente (no hay
+  // formulario de edición para categorías/ubicaciones/clientes todavía).
+  actualizarProveedor(
+    id: string,
+    data: { contacto: string | null; dias_entrega_declarado: number | null }
+  ): void {
+    const p = db.proveedores.find((x) => x.id === id);
+    if (!p) throw new Error("Proveedor no encontrado");
+    p.contacto = data.contacto;
+    p.dias_entrega_declarado = data.dias_entrega_declarado;
+    logAudit("editar", "proveedor", p.id, p.nombre);
   },
 
   eliminarCatalogo(
@@ -994,6 +1015,9 @@ export const store = {
       proveedor_nombre: prov.nombre,
       responsable_id: null,
       responsable_nombre: null,
+      nivel_riesgo: null,
+      dias_cobertura_restante: null,
+      lead_time_dias_usado: null,
       created_at: now,
       updated_at: now,
     };
@@ -1080,6 +1104,84 @@ export const store = {
         n.resuelta_at = now;
       }
     }
+  },
+
+  // Espejo en memoria de generarCasosAutomaticosPorStockBajo (lib/casos-
+  // automaticos.ts): mismo cálculo (calcularStockSugerido + calcularEOQ +
+  // evaluarRiesgoStock), pero contra los arrays del store. En producción
+  // esto lo dispara el cron; en demo se engancha a cada carga de
+  // getNotificaciones() para poder probar/demostrar la feature sin cron.
+  generarCasosAutomaticosPorStockBajo(): ResumenReposicionAutomatica {
+    const candidatos = db.materiales.filter((m) => m.activo && m.proveedor_id);
+    let casosCreados = 0;
+
+    for (const m of candidatos) {
+      const proveedorId = m.proveedor_id;
+      if (!proveedorId) continue;
+
+      const yaAbierto = db.casos_compra.some(
+        (c) => c.material_id === m.id && CASO_COMPRA_ABIERTO.includes(c.estado)
+      );
+      if (yaAbierto) continue;
+
+      const salidas = db.movimientos
+        .filter((mv) => mv.material_id === m.id && mv.tipo === "salida")
+        .map((mv) => ({ cantidad: mv.cantidad, created_at: mv.created_at }));
+      const comprasRecibidas = db.casos_compra
+        .filter((c) => c.material_id === m.id && c.estado === "recibido")
+        .map((c) => ({ created_at: c.created_at, updated_at: c.updated_at }));
+
+      const stockSugerido = calcularStockSugerido({ salidas, comprasRecibidas });
+      const eoq =
+        m.costo_unitario > 0
+          ? calcularEOQ({ salidas, costoUnitario: m.costo_unitario })
+          : null;
+      const proveedor = db.proveedores.find((p) => p.id === proveedorId);
+
+      const riesgo = evaluarRiesgoStock({
+        stockActual: m.stock_actual,
+        stockMinimo: m.stock_minimo,
+        proveedorDiasEntrega: proveedor?.dias_entrega_declarado ?? null,
+        stockSugerido,
+        eoq,
+      });
+      if (!riesgo.debeCrearCaso) continue;
+
+      const referencia = `OC-${Date.now().toString().slice(-6)}`;
+      const cantidad = riesgo.cantidadSugerida;
+      const caso = store.crearCasoCompra({
+        proveedor_id: proveedorId,
+        material_id: m.id,
+        titulo: `Reposición automática: ${m.nombre}`,
+        descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${m.unidad}.`,
+        monto_estimado: m.costo_unitario > 0 ? m.costo_unitario * cantidad : 0,
+        referencia,
+        origen: "stock_bajo",
+      });
+      caso.nivel_riesgo = riesgo.nivelRiesgo;
+      caso.dias_cobertura_restante = riesgo.diasCobertura;
+      caso.lead_time_dias_usado = riesgo.leadTimeUsado;
+
+      store.atenderNotificacionesDeMaterial(m.id, caso.id);
+      db.notificaciones.push({
+        id: uid(),
+        material_id: m.id,
+        proveedor_id: proveedorId,
+        mensaje: `Se generó automáticamente el caso ${referencia} para reponer ${m.nombre} (riesgo ${riesgo.nivelRiesgo}). Revisa y asigna un responsable.`,
+        estado: "abierta",
+        nivel: riesgo.nivelRiesgo === "medio" ? "aviso" : "bajo",
+        tipo: "stock",
+        usuario_id: null,
+        caso_compra_id: caso.id,
+        caso_venta_id: null,
+        salida_pendiente_id: null,
+        created_at: new Date().toISOString(),
+        resuelta_at: null,
+      });
+      casosCreados++;
+    }
+
+    return { materialesRevisados: candidatos.length, casosCreados };
   },
 
   /* ---------------- Email entrante (webhook) ---------------- */

@@ -5,10 +5,29 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
+import { getEOQ, getStockSugerido } from "@/lib/data";
+import type { StockSugerido } from "@/lib/stock-sugerido";
+import type { ResultadoEOQ } from "@/lib/eoq";
 
 export type ActionResult =
   | { ok: true; id?: string }
   | { ok: false; error: string };
+
+// Se llama on-demand desde el formulario de edición (client component) —
+// por eso vive como server action de solo lectura en vez de en lib/data.ts
+// directo, que solo pueden llamar Server Components.
+export async function obtenerStockSugerido(
+  materialId: string
+): Promise<StockSugerido> {
+  return getStockSugerido(materialId);
+}
+
+export async function obtenerEOQ(
+  materialId: string,
+  costoUnitario: number
+): Promise<ResultadoEOQ> {
+  return getEOQ(materialId, costoUnitario);
+}
 
 function parseMaterial(formData: FormData) {
   const num = (k: string) => {

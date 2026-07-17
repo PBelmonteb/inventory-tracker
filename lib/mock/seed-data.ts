@@ -80,9 +80,9 @@ export function makeSeed(): {
   ];
 
   const proveedores: Proveedor[] = [
-    { id: "prov-norte", nombre: "Aluminios del Norte", contacto: "ventas@aluminorte.mx", created_at: diasAtras(60) },
-    { id: "prov-mty", nombre: "Herrajes MTY", contacto: "pedidos@herrajesmty.mx", created_at: diasAtras(60) },
-    { id: "prov-tor", nombre: "Tornillos SA", contacto: "contacto@tornillossa.mx", created_at: diasAtras(60) },
+    { id: "prov-norte", nombre: "Aluminios del Norte", contacto: "ventas@aluminorte.mx", dias_entrega_declarado: 10, created_at: diasAtras(60) },
+    { id: "prov-mty", nombre: "Herrajes MTY", contacto: "pedidos@herrajesmty.mx", dias_entrega_declarado: 5, created_at: diasAtras(60) },
+    { id: "prov-tor", nombre: "Tornillos SA", contacto: "contacto@tornillossa.mx", dias_entrega_declarado: 3, created_at: diasAtras(60) },
   ];
 
   const mat = (
@@ -200,6 +200,9 @@ export function makeSeed(): {
       proveedor_nombre: "Aluminios del Norte",
       responsable_id: null,
       responsable_nombre: null,
+      nivel_riesgo: null,
+      dias_cobertura_restante: null,
+      lead_time_dias_usado: null,
       created_at: diasAtras(4),
       updated_at: diasAtras(4),
     },
@@ -217,6 +220,9 @@ export function makeSeed(): {
       proveedor_nombre: "Tornillos SA",
       responsable_id: "user-planta-1",
       responsable_nombre: "Jorge Medina (Planta)",
+      nivel_riesgo: null,
+      dias_cobertura_restante: null,
+      lead_time_dias_usado: null,
       created_at: diasAtras(2),
       updated_at: diasAtras(2),
     },
@@ -234,6 +240,9 @@ export function makeSeed(): {
       proveedor_nombre: "Herrajes MTY",
       responsable_id: null,
       responsable_nombre: null,
+      nivel_riesgo: null,
+      dias_cobertura_restante: null,
+      lead_time_dias_usado: null,
       created_at: diasAtras(1),
       updated_at: diasAtras(1),
     },

@@ -7,12 +7,12 @@
 // EMAIL_WEBHOOK_SECRET (si la variable no está definida, solo se acepta
 // en modo demo).
 
-import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
 import { mensajeSupabase } from "@/lib/supabase/errors";
+import { secretoValido } from "@/lib/webhook-auth";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import {
   extraerMonto,
@@ -21,15 +21,6 @@ import {
   resumirCuerpo,
   type EmailEntrante,
 } from "@/lib/email-caso";
-
-// Comparación en tiempo constante (evita timing attacks sobre el secreto).
-// Se hashea cada lado para que el resultado no dependa de la longitud.
-function secretoValido(recibido: string | null, esperado: string): boolean {
-  if (!recibido) return false;
-  const a = createHash("sha256").update(recibido).digest();
-  const b = createHash("sha256").update(esperado).digest();
-  return timingSafeEqual(a, b);
-}
 
 export async function POST(req: Request) {
   // ---- Autenticación del webhook ----

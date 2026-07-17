@@ -8,9 +8,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Button, Input, Label } from "@/components/ui";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { solicitarCotizacion } from "@/lib/actions/compras";
-import { formatQty } from "@/lib/utils";
+import { obtenerEOQ } from "@/lib/actions/materiales";
+import { formatMoney, formatQty } from "@/lib/utils";
 import type { MaterialConRelaciones } from "@/lib/types";
+import type { ResultadoEOQ } from "@/lib/eoq";
 import { CheckCircle2, Mail, TriangleAlert } from "lucide-react";
 
 export function SolicitudCotizacionForm({
@@ -34,6 +37,9 @@ export function SolicitudCotizacionForm({
     material.stock_minimo
   );
 
+  const lineaCantidad = (cantidad: number) =>
+    `• Cantidad requerida: ${formatQty(cantidad, material.unidad)}`;
+
   const asuntoInicial = `Solicitud de cotización — ${material.nombre}${
     material.sku ? ` (${material.sku})` : ""
   }`;
@@ -44,7 +50,7 @@ export function SolicitudCotizacionForm({
     "",
     `• Material: ${material.nombre}`,
     `• SKU: ${material.sku ?? "—"}`,
-    `• Cantidad requerida: ${formatQty(cantidadSugerida, material.unidad)}`,
+    lineaCantidad(cantidadSugerida),
     "",
     "Por favor indíquennos precio unitario, tiempo de entrega y condiciones de pago.",
     "",
@@ -56,6 +62,7 @@ export function SolicitudCotizacionForm({
   const [error, setError] = useState<string | null>(null);
   const [enviado, setEnviado] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const [eoq, setEoq] = useState<ResultadoEOQ | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -66,6 +73,28 @@ export function SolicitudCotizacionForm({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Fetch on-demand: la cantidad económica de pedido necesita el historial
+  // de salidas del material, que no viene precargado en props.
+  useEffect(() => {
+    if (!open) {
+      setEoq(null);
+      return;
+    }
+    let cancelado = false;
+    obtenerEOQ(material.id, material.costo_unitario).then((r) => {
+      if (!cancelado) setEoq(r);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [open, material.id, material.costo_unitario]);
+
+  function usarCantidadEOQ() {
+    if (!eoq?.disponible) return;
+    const nuevaCantidad = Math.ceil(eoq.cantidadEconomica);
+    setCuerpo((c) => c.replace(lineaCantidad(cantidadSugerida), lineaCantidad(nuevaCantidad)));
+  }
 
   async function registrar(abrirCorreo: boolean) {
     setError(null);
@@ -160,6 +189,62 @@ export function SolicitudCotizacionForm({
                 Sin correo registrado. Puedes registrar el caso, pero agrégale
                 un contacto al proveedor para enviar el correo.
               </p>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-line bg-surface-2/40 p-2.5 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center font-medium text-fg">
+                Cantidad económica de pedido (EOQ)
+                <InfoTooltip>
+                  <p className="mb-1.5 font-semibold text-fg">
+                    Cantidad económica de pedido
+                  </p>
+                  <p>EOQ = √(2 × demanda anual × S / H)</p>
+                  <p className="mt-1.5">
+                    S = costo de ordenar un pedido (fijo, sin importar cuánto
+                    se pida). H = costo de mantener una pieza en inventario
+                    un año = costo unitario × tasa de mantenimiento anual.
+                  </p>
+                  {eoq?.disponible ? (
+                    <ul className="mt-2 space-y-0.5 border-t border-line pt-2">
+                      <li>
+                        Demanda anual estimada:{" "}
+                        {formatQty(Math.round(eoq.demandaAnual), material.unidad)}
+                      </li>
+                      <li>S (costo de ordenar): {formatMoney(eoq.costoOrdenar)}</li>
+                      <li>
+                        H (tasa de mantenimiento anual):{" "}
+                        {(eoq.tasaMantenimientoAnual * 100).toFixed(0)}%
+                      </li>
+                      <li>
+                        Pedidos al año sugeridos:{" "}
+                        {eoq.numeroPedidosAlAno.toFixed(1)}
+                      </li>
+                    </ul>
+                  ) : (
+                    <p className="mt-2 border-t border-line pt-2 text-faint">
+                      S y H son supuestos por defecto (ajustables más
+                      adelante desde configuración) — no son datos
+                      capturados por el cliente todavía.
+                    </p>
+                  )}
+                </InfoTooltip>
+              </span>
+              {eoq?.disponible ? (
+                <button
+                  type="button"
+                  onClick={usarCantidadEOQ}
+                  className="cursor-pointer font-medium text-accent hover:underline"
+                >
+                  Usar {formatQty(Math.ceil(eoq.cantidadEconomica), material.unidad)}
+                </button>
+              ) : (
+                <span className="text-faint">No disponible</span>
+              )}
+            </div>
+            {!eoq?.disponible && eoq?.razonNoDisponible && (
+              <p className="mt-1 text-faint">{eoq.razonNoDisponible}</p>
             )}
           </div>
 

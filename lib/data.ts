@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
+import { calcularStockSugerido, type StockSugerido } from "@/lib/stock-sugerido";
+import { calcularEOQ, type ResultadoEOQ } from "@/lib/eoq";
 import type {
   Auditoria,
   BomItemConMaterial,
@@ -237,6 +239,67 @@ export async function getHistorialPreciosTodos(): Promise<HistorialPrecio[]> {
   return (data as HistorialPrecio[]) ?? [];
 }
 
+// Punto de reorden sugerido para "stock mínimo", calculado del historial
+// real (ver lib/stock-sugerido.ts) — la lógica del cálculo vive en un solo
+// lugar; aquí solo se arma la data cruda que necesita (DEMO vs Supabase).
+export async function getStockSugerido(materialId: string): Promise<StockSugerido> {
+  if (DEMO) {
+    const salidas = store
+      .getMovimientosDeMaterial(materialId)
+      .filter((m) => m.tipo === "salida")
+      .map((m) => ({ cantidad: m.cantidad, created_at: m.created_at }));
+    const comprasRecibidas = store
+      .getCasosCompra()
+      .filter((c) => c.material_id === materialId && c.estado === "recibido")
+      .map((c) => ({ created_at: c.created_at, updated_at: c.updated_at }));
+    return calcularStockSugerido({ salidas, comprasRecibidas });
+  }
+
+  const supabase = await createClient();
+  const [{ data: salidas }, { data: comprasRecibidas }] = await Promise.all([
+    supabase
+      .from("movimientos")
+      .select("cantidad, created_at")
+      .eq("material_id", materialId)
+      .eq("tipo", "salida"),
+    supabase
+      .from("casos_compra")
+      .select("created_at, updated_at")
+      .eq("material_id", materialId)
+      .eq("estado", "recibido"),
+  ]);
+
+  return calcularStockSugerido({
+    salidas: salidas ?? [],
+    comprasRecibidas: comprasRecibidas ?? [],
+  });
+}
+
+// Cantidad económica de pedido (ver lib/eoq.ts) — el costo_unitario se
+// recibe como parámetro porque quien llama (el formulario de cotización)
+// ya lo tiene del material cargado, sin necesidad de otra consulta.
+export async function getEOQ(
+  materialId: string,
+  costoUnitario: number
+): Promise<ResultadoEOQ> {
+  if (DEMO) {
+    const salidas = store
+      .getMovimientosDeMaterial(materialId)
+      .filter((m) => m.tipo === "salida")
+      .map((m) => ({ cantidad: m.cantidad, created_at: m.created_at }));
+    return calcularEOQ({ salidas, costoUnitario });
+  }
+
+  const supabase = await createClient();
+  const { data: salidas } = await supabase
+    .from("movimientos")
+    .select("cantidad, created_at")
+    .eq("material_id", materialId)
+    .eq("tipo", "salida");
+
+  return calcularEOQ({ salidas: salidas ?? [], costoUnitario });
+}
+
 export async function getAuditoria(limite = 200): Promise<Auditoria[]> {
   if (DEMO) return store.getAuditoria(limite);
   const supabase = await createClient();
@@ -326,6 +389,9 @@ export async function getNotificaciones(): Promise<
 > {
   if (DEMO) {
     store.sincronizarNotificaciones();
+    // Sin cron en demo: la generación automática de casos se engancha aquí,
+    // igual que la sincronización de alertas (ver lib/casos-automaticos.ts).
+    store.generarCasosAutomaticosPorStockBajo();
     return store.getNotificaciones();
   }
   const supabase = await createClient();

@@ -26,6 +26,10 @@ export interface Proveedor {
   id: string;
   nombre: string;
   contacto: string | null;
+  // Tiempo de entrega declarado por el proveedor (días). Respaldo cuando
+  // aún no hay historial suficiente para inferirlo (ver lib/stock-sugerido.ts);
+  // si ambos existen, el inferido del historial real gana por ser más preciso.
+  dias_entrega_declarado: number | null;
   created_at: string;
 }
 
@@ -218,9 +222,17 @@ export const ESTADOS_CASO_COMPRA: EstadoCasoCompra[] = [
   "cancelado",
 ];
 
-// manual = creado desde el formulario; stock_bajo = desde una notificación;
-// correo = creado automáticamente por el webhook de email entrante.
+// manual = creado desde el formulario; stock_bajo = desde una notificación
+// (a mano o por la automatización de reposición); correo = creado
+// automáticamente por el webhook de email entrante.
 export type OrigenCasoCompra = "manual" | "stock_bajo" | "correo";
+
+// Qué tan urgente es un caso creado por la automatización de reposición:
+// "critico" = el stock se agotaría antes de que llegue un pedido nuevo;
+// "alto" = margen corto; "medio" = cruzó el punto de reorden pero con
+// holgura (o no se pudo medir el riesgo de desabasto). Null en casos
+// manuales/por correo — solo lo calcula lib/riesgo-stock.ts.
+export type NivelRiesgoStock = "medio" | "alto" | "critico";
 
 export interface CasoCompra {
   id: string;
@@ -239,6 +251,11 @@ export interface CasoCompra {
   // Persona encargada de darle seguimiento (null = sin asignar).
   responsable_id: string | null;
   responsable_nombre: string | null;
+  // Snapshot del riesgo al momento de la creación automática (null si el
+  // caso no vino de la automatización de reposición).
+  nivel_riesgo: NivelRiesgoStock | null;
+  dias_cobertura_restante: number | null;
+  lead_time_dias_usado: number | null;
   created_at: string;
   updated_at: string;
 }

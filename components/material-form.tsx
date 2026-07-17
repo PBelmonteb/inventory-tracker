@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Button, Input, Label, Select } from "@/components/ui";
-import { crearMaterial, actualizarMaterial } from "@/lib/actions/materiales";
-import { formatMoney } from "@/lib/utils";
+import { InfoTooltip } from "@/components/info-tooltip";
+import {
+  crearMaterial,
+  actualizarMaterial,
+  obtenerStockSugerido,
+} from "@/lib/actions/materiales";
+import { formatMoney, formatQty } from "@/lib/utils";
 import { UNIDADES } from "@/lib/types";
 import type {
   Categoria,
@@ -13,6 +18,7 @@ import type {
   Proveedor,
   Ubicacion,
 } from "@/lib/types";
+import type { StockSugerido } from "@/lib/stock-sugerido";
 
 export function MaterialForm({
   open,
@@ -33,6 +39,24 @@ export function MaterialForm({
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const editando = Boolean(material);
+  const stockMinimoRef = useRef<HTMLInputElement>(null);
+  const [stockSugerido, setStockSugerido] = useState<StockSugerido | null>(null);
+
+  // Fetch on-demand: solo tiene sentido calcularlo para un material que ya
+  // existe (necesita su propio historial de salidas/compras).
+  useEffect(() => {
+    if (!open || !material?.id) {
+      setStockSugerido(null);
+      return;
+    }
+    let cancelado = false;
+    obtenerStockSugerido(material.id).then((r) => {
+      if (!cancelado) setStockSugerido(r);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [open, material?.id]);
 
   async function onSubmit(formData: FormData) {
     setError(null);
@@ -147,8 +171,51 @@ export function MaterialForm({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="stock_minimo">Stock mínimo</Label>
+            <Label htmlFor="stock_minimo" className="flex items-center">
+              Stock mínimo
+              <InfoTooltip>
+                <p className="mb-1.5 font-semibold text-fg">
+                  Punto de reorden
+                </p>
+                <p>
+                  Punto de reorden = (demanda promedio diaria × tiempo de
+                  entrega) + stock de seguridad.
+                </p>
+                <p className="mt-1.5">
+                  Stock de seguridad = 1.65 × desviación de la demanda diaria
+                  × √(tiempo de entrega) — cubre ~95% de los casos ante
+                  variabilidad de consumo y de entrega.
+                </p>
+                {stockSugerido?.disponible && (
+                  <ul className="mt-2 space-y-0.5 border-t border-line pt-2">
+                    <li>
+                      Demanda promedio:{" "}
+                      {formatQty(stockSugerido.demandaPromedioDiaria, material?.unidad)}
+                      /día
+                    </li>
+                    <li>
+                      Desviación de la demanda:{" "}
+                      {formatQty(stockSugerido.desviacionDemandaDiaria, material?.unidad)}
+                    </li>
+                    <li>
+                      Tiempo de entrega:{" "}
+                      {stockSugerido.leadTimePromedioDias.toFixed(1)} días
+                    </li>
+                    <li>
+                      Stock de seguridad:{" "}
+                      {formatQty(stockSugerido.stockSeguridad, material?.unidad)}
+                    </li>
+                    <li className="text-faint">
+                      Con {stockSugerido.diasHistorial} días de historial y{" "}
+                      {stockSugerido.numeroComprasConsideradas} compra(s)
+                      recibida(s).
+                    </li>
+                  </ul>
+                )}
+              </InfoTooltip>
+            </Label>
             <Input
+              ref={stockMinimoRef}
               id="stock_minimo"
               name="stock_minimo"
               type="number"
@@ -156,6 +223,33 @@ export function MaterialForm({
               min="0"
               defaultValue={material?.stock_minimo ?? 0}
             />
+            {editando && stockSugerido && (
+              <p className="mt-1 text-xs text-faint">
+                {stockSugerido.disponible ? (
+                  <>
+                    Sugerido:{" "}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (stockMinimoRef.current) {
+                          stockMinimoRef.current.value = String(
+                            Math.ceil(stockSugerido.puntoReorden)
+                          );
+                        }
+                      }}
+                      className="cursor-pointer font-medium text-accent hover:underline"
+                    >
+                      {formatQty(
+                        Math.ceil(stockSugerido.puntoReorden),
+                        material?.unidad
+                      )}
+                    </button>
+                  </>
+                ) : (
+                  stockSugerido.razonNoDisponible
+                )}
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="precio_venta">Precio de venta</Label>

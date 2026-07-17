@@ -13,22 +13,33 @@ import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
 import { SimuladorEmail } from "@/components/simulador-email";
 import { RecibirCompraForm } from "@/components/recibir-compra-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
+import { InfoTooltip } from "@/components/info-tooltip";
 import {
   asignarResponsableCasoCompra,
   cambiarEstadoCasoCompra,
   descartarNotificacion,
 } from "@/lib/actions/compras";
+import { revisarReposicionAutomatica } from "@/lib/actions/casos-automaticos";
 import { DEMO } from "@/lib/config";
 import { formatDate, formatMoney, formatQty } from "@/lib/utils";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
 import type {
   CasoCompraConRelaciones,
   EstadoCasoCompra,
+  NivelRiesgoStock,
   NotificacionConRelaciones,
   OrigenCasoCompra,
   Proveedor,
 } from "@/lib/types";
-import { BellRing, Mail, PencilLine, Plus, X } from "lucide-react";
+import {
+  BellRing,
+  Mail,
+  PencilLine,
+  Plus,
+  RefreshCw,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 
 type MaterialOpcion = { id: string; nombre: string; sku: string | null };
 
@@ -50,6 +61,15 @@ const ORIGEN_META: Record<
   manual: { label: "Manual", Icon: PencilLine, barra: "bg-faint/50" },
   stock_bajo: { label: "Alerta de stock", Icon: BellRing, barra: "bg-amber-500/70" },
   correo: { label: "Correo", Icon: Mail, barra: "bg-accent" },
+};
+
+const NIVEL_RIESGO_META: Record<
+  NivelRiesgoStock,
+  { label: string; tone: "ok" | "warn" | "danger" | "neutral" | "accent" }
+> = {
+  critico: { label: "Riesgo crítico", tone: "danger" },
+  alto: { label: "Riesgo alto", tone: "warn" },
+  medio: { label: "Riesgo medio", tone: "neutral" },
 };
 
 const ABIERTOS: EstadoCasoCompra[] = ["pendiente", "cotizando", "ordenado"];
@@ -78,11 +98,15 @@ export function ProveedoresView({
   );
   const [filtroProveedor, setFiltroProveedor] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
+  const [revisando, setRevisando] = useState(false);
 
   // Esta vista solo maneja alertas de stock; las de asignación (personales)
   // viven en la campana global (NotificacionesProvider/Bell), no aquí.
+  // Excluye las que ya tienen un caso enlazado: la reposición automática
+  // deja una notificación "abierta" para que la campana avise, pero ya no
+  // necesita el botón "Crear caso" (crearía un duplicado del automático).
   const abiertas = notificaciones.filter(
-    (n) => n.estado === "abierta" && n.tipo === "stock"
+    (n) => n.estado === "abierta" && n.tipo === "stock" && !n.caso_compra_id
   );
   const casosAbiertos = casos.filter((c) => ABIERTOS.includes(c.estado));
   const montoPipeline = casosAbiertos.reduce(
@@ -138,6 +162,23 @@ export function ProveedoresView({
     router.refresh();
   }
 
+  async function revisarReposicion() {
+    setRevisando(true);
+    const res = await revisarReposicionAutomatica();
+    setRevisando(false);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    const { casosCreados, materialesRevisados } = res.resumen;
+    alert(
+      casosCreados > 0
+        ? `Se crearon ${casosCreados} caso(s) de compra automáticos (de ${materialesRevisados} materiales revisados).`
+        : `Ningún material necesita reposición ahora mismo (${materialesRevisados} revisados).`
+    );
+    if (casosCreados > 0) router.refresh();
+  }
+
   async function cambiarEstado(
     caso: CasoCompraConRelaciones,
     estado: EstadoCasoCompra
@@ -176,6 +217,14 @@ export function ProveedoresView({
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            onClick={revisarReposicion}
+            disabled={revisando}
+          >
+            <RefreshCw className={`h-4 w-4 ${revisando ? "animate-spin" : ""}`} />
+            Revisar reposición ahora
+          </Button>
           {DEMO && (
             <Button
               variant="secondary"
@@ -380,6 +429,32 @@ export function ProveedoresView({
                         <OrigenIcon className="h-3 w-3" />
                         {ORIGEN_META[c.origen].label}
                       </span>
+                    )}
+                    {c.origen === "stock_bajo" && c.nivel_riesgo && (
+                      <>
+                        <Badge tone={NIVEL_RIESGO_META[c.nivel_riesgo].tone}>
+                          <TriangleAlert className="h-3 w-3" />
+                          {NIVEL_RIESGO_META[c.nivel_riesgo].label}
+                        </Badge>
+                        <InfoTooltip>
+                          {c.descripcion ? (
+                            <p>{c.descripcion}</p>
+                          ) : (
+                            <p>Caso generado automáticamente por la reposición de stock.</p>
+                          )}
+                          {(c.dias_cobertura_restante != null ||
+                            c.lead_time_dias_usado != null) && (
+                            <p className="mt-1.5 border-t border-line pt-1.5">
+                              {c.dias_cobertura_restante != null && (
+                                <>Cobertura al crear el caso: ~{c.dias_cobertura_restante.toFixed(1)} días. </>
+                              )}
+                              {c.lead_time_dias_usado != null && (
+                                <>Tiempo de entrega usado: ~{c.lead_time_dias_usado.toFixed(1)} días.</>
+                              )}
+                            </p>
+                          )}
+                        </InfoTooltip>
+                      </>
                     )}
                   </p>
                   <p className="mt-0.5 text-xs text-muted">
