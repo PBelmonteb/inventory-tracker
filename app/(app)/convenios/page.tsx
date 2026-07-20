@@ -27,6 +27,7 @@ export default async function ConveniosPage() {
       convenios={convenios}
       proveedores={proveedores}
       materiales={opcionesMaterial}
+      emailAutomaticoDisponible={Boolean(process.env.RESEND_API_KEY)}
     />
   );
 }

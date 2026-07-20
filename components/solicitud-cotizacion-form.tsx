@@ -15,6 +15,10 @@ import {
 } from "@/lib/actions/compras";
 import { obtenerEOQ } from "@/lib/actions/materiales";
 import { obtenerConvenioVigente } from "@/lib/actions/convenios";
+import {
+  construirCorreoCotizacion,
+  lineaCantidadCotizacion,
+} from "@/lib/plantillas-correo";
 import { formatMoney, formatQty } from "@/lib/utils";
 import type { Convenio, MaterialConRelaciones } from "@/lib/types";
 import type { ResultadoEOQ } from "@/lib/eoq";
@@ -47,24 +51,13 @@ export function SolicitudCotizacionForm({
   );
 
   const lineaCantidad = (cantidad: number) =>
-    `• Cantidad requerida: ${formatQty(cantidad, material.unidad)}`;
+    lineaCantidadCotizacion(cantidad, material.unidad);
 
-  const asuntoInicial = `Solicitud de cotización — ${material.nombre}${
-    material.sku ? ` (${material.sku})` : ""
-  }`;
-  const cuerpoInicial = [
-    `Estimados ${proveedorNombre ?? "proveedor"},`,
-    "",
-    "Solicitamos cotización para el siguiente material:",
-    "",
-    `• Material: ${material.nombre}`,
-    `• SKU: ${material.sku ?? "—"}`,
-    lineaCantidad(cantidadSugerida),
-    "",
-    "Por favor indíquennos precio unitario, tiempo de entrega y condiciones de pago.",
-    "",
-    "Quedamos atentos. Saludos.",
-  ].join("\n");
+  const { asunto: asuntoInicial, cuerpo: cuerpoInicial } = construirCorreoCotizacion({
+    material,
+    proveedorNombre,
+    cantidad: cantidadSugerida,
+  });
 
   const [asunto, setAsunto] = useState(asuntoInicial);
   const [cuerpo, setCuerpo] = useState(cuerpoInicial);

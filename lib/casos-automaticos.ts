@@ -20,6 +20,8 @@ import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
 import { evaluarRiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
+import { construirCorreoOrdenConvenio } from "@/lib/plantillas-correo";
+import { enviarCorreo } from "@/lib/email";
 import type { Convenio } from "@/lib/types";
 
 export interface ResumenReposicionAutomatica {
@@ -30,11 +32,19 @@ export interface ResumenReposicionAutomatica {
 interface MaterialCandidato {
   id: string;
   nombre: string;
+  sku: string | null;
   unidad: string;
   stock_actual: number;
   stock_minimo: number;
   costo_unitario: number;
   proveedor_id: string;
+}
+
+interface ProveedorInfo {
+  id: string;
+  nombre: string;
+  contacto: string | null;
+  dias_entrega_declarado: number | null;
 }
 
 const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "ordenado"];
@@ -46,7 +56,7 @@ export async function generarCasosAutomaticosPorStockBajo(
   let query = supabase
     .from("materiales")
     .select(
-      "id, nombre, unidad, stock_actual, stock_minimo, costo_unitario, proveedor_id"
+      "id, nombre, sku, unidad, stock_actual, stock_minimo, costo_unitario, proveedor_id"
     )
     .eq("activo", true)
     .not("proveedor_id", "is", null);
@@ -76,7 +86,7 @@ export async function generarCasosAutomaticosPorStockBajo(
       .in("estado", CASO_COMPRA_ABIERTO),
     supabase
       .from("proveedores")
-      .select("id, dias_entrega_declarado")
+      .select("id, nombre, contacto, dias_entrega_declarado")
       .in("id", proveedorIds),
     supabase
       .from("movimientos")
@@ -98,13 +108,8 @@ export async function generarCasosAutomaticosPorStockBajo(
   const materialesConCasoAbierto = new Set(
     (abiertosRows ?? []).map((r: { material_id: string }) => r.material_id)
   );
-  const diasEntregaPorProveedor = new Map<string, number | null>(
-    (proveedoresRows ?? []).map(
-      (p: { id: string; dias_entrega_declarado: number | null }) => [
-        p.id,
-        p.dias_entrega_declarado,
-      ]
-    )
+  const proveedorInfoPorId = new Map<string, ProveedorInfo>(
+    (proveedoresRows ?? []).map((p: ProveedorInfo) => [p.id, p])
   );
 
   const salidasPorMaterial = new Map<
@@ -163,9 +168,10 @@ export async function generarCasosAutomaticosPorStockBajo(
     // El tiempo de entrega pactado en el convenio es más preciso que el
     // declarado a nivel proveedor — pero el inferido del historial real
     // (dentro de evaluarRiesgoStock) le sigue ganando a ambos.
+    const proveedorInfo = proveedorInfoPorId.get(material.proveedor_id);
     const proveedorDiasEntrega =
       convenio?.dias_entrega_pactado ??
-      diasEntregaPorProveedor.get(material.proveedor_id) ??
+      proveedorInfo?.dias_entrega_declarado ??
       null;
 
     const riesgo = evaluarRiesgoStock({
@@ -186,6 +192,7 @@ export async function generarCasosAutomaticosPorStockBajo(
     const notaConvenio = convenio
       ? ` Precio según convenio vigente: $${convenio.precio_pactado.toFixed(2)}/unidad.`
       : "";
+    const descripcionBase = `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}.${notaConvenio}`;
 
     const { data: caso, error } = await supabase
       .from("casos_compra")
@@ -193,7 +200,7 @@ export async function generarCasosAutomaticosPorStockBajo(
         proveedor_id: material.proveedor_id,
         material_id: material.id,
         titulo: `Reposición automática: ${material.nombre}`,
-        descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}.${notaConvenio}`,
+        descripcion: descripcionBase,
         monto_estimado: montoEstimado,
         referencia,
         estado: "pendiente",
@@ -226,6 +233,54 @@ export async function generarCasosAutomaticosPorStockBajo(
       mensaje: `Se generó automáticamente el caso ${referencia} para reponer ${material.nombre} (riesgo ${riesgo.nivelRiesgo}). Revisa y asigna un responsable.`,
       caso_compra_id: caso.id,
     });
+
+    // Opt-in por convenio: si el precio/cantidad/condiciones ya están
+    // pactados, no hace falta que un humano redacte y apruebe el correo —
+    // se manda solo y el caso pasa directo a "ordenado". Nunca se finge un
+    // envío que no ocurrió: sin correo del proveedor, o si el servicio no
+    // está configurado/falla, el caso se queda en "pendiente" con una nota.
+    if (convenio?.auto_enviar) {
+      if (!proveedorInfo?.contacto) {
+        await supabase
+          .from("casos_compra")
+          .update({
+            descripcion: `${descripcionBase} Envío automático configurado pero el proveedor no tiene correo registrado.`,
+          })
+          .eq("id", caso.id);
+      } else {
+        const correo = construirCorreoOrdenConvenio({
+          material: { nombre: material.nombre, sku: material.sku, unidad: material.unidad },
+          proveedorNombre: proveedorInfo.nombre,
+          cantidad,
+          precioUnitario,
+          condicionesPago: convenio.condiciones_pago,
+          diasEntregaPactado: convenio.dias_entrega_pactado,
+          referencia,
+        });
+        const envio = await enviarCorreo({
+          to: proveedorInfo.contacto,
+          subject: correo.asunto,
+          body: correo.cuerpo,
+        });
+        if (envio.ok) {
+          await supabase
+            .from("casos_compra")
+            .update({
+              estado: "ordenado",
+              correo_enviado_at: new Date().toISOString(),
+              descripcion: `${descripcionBase} Orden confirmada y enviada automáticamente por convenio.`,
+            })
+            .eq("id", caso.id);
+        } else {
+          await supabase
+            .from("casos_compra")
+            .update({
+              descripcion: `${descripcionBase} Envío automático configurado pero falló: ${envio.error} Revisar manualmente.`,
+            })
+            .eq("id", caso.id);
+        }
+      }
+    }
 
     casosCreados++;
   }

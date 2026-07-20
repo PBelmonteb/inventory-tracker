@@ -12,7 +12,7 @@ import {
 import { esConvenioVigente } from "@/lib/convenios";
 import { formatMoney, formatQty } from "@/lib/utils";
 import type { ConvenioConRelaciones, Proveedor } from "@/lib/types";
-import { FileText, Plus } from "lucide-react";
+import { FileText, Mail, Plus, TriangleAlert } from "lucide-react";
 
 type MaterialOpcion = {
   id: string;
@@ -40,10 +40,12 @@ export function ConveniosView({
   convenios,
   proveedores,
   materiales,
+  emailAutomaticoDisponible,
 }: {
   convenios: ConvenioConRelaciones[];
   proveedores: Proveedor[];
   materiales: MaterialOpcion[];
+  emailAutomaticoDisponible: boolean;
 }) {
   const router = useRouter();
   const [formAbierto, setFormAbierto] = useState(false);
@@ -126,6 +128,11 @@ export function ConveniosView({
                     <p className="flex items-center gap-2 text-sm font-medium text-fg">
                       {c.materiales?.nombre ?? "Material eliminado"}
                       <Badge tone={estado.tone}>{estado.label}</Badge>
+                      {c.auto_enviar && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
+                          <Mail className="h-3 w-3" /> Envío automático
+                        </span>
+                      )}
                     </p>
                     <p className="mt-0.5 text-xs text-muted">
                       {c.proveedores?.nombre ?? "Proveedor eliminado"} ·{" "}
@@ -173,6 +180,7 @@ export function ConveniosView({
         proveedores={proveedores}
         materiales={materiales}
         editando={editando}
+        emailAutomaticoDisponible={emailAutomaticoDisponible}
       />
     </div>
   );
@@ -184,16 +192,20 @@ function ConvenioForm({
   proveedores,
   materiales,
   editando,
+  emailAutomaticoDisponible,
 }: {
   open: boolean;
   onClose: () => void;
   proveedores: Proveedor[];
   materiales: MaterialOpcion[];
   editando: ConvenioConRelaciones | null;
+  emailAutomaticoDisponible: boolean;
 }) {
   const router = useRouter();
   const [proveedorId, setProveedorId] = useState("");
   const [materialId, setMaterialId] = useState("");
+  const [cantidadMinima, setCantidadMinima] = useState("");
+  const [autoEnviar, setAutoEnviar] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
 
@@ -201,6 +213,8 @@ function ConvenioForm({
     if (open) {
       setProveedorId(editando?.proveedor_id ?? "");
       setMaterialId(editando?.material_id ?? "");
+      setCantidadMinima(editando?.cantidad_minima?.toString() ?? "");
+      setAutoEnviar(editando?.auto_enviar ?? false);
       setError(null);
     }
   }, [open, editando]);
@@ -286,7 +300,8 @@ function ConvenioForm({
               type="number"
               step="any"
               min="0"
-              defaultValue={editando?.cantidad_minima ?? ""}
+              value={cantidadMinima}
+              onChange={(e) => setCantidadMinima(e.target.value)}
             />
           </div>
           <div>
@@ -325,6 +340,34 @@ function ConvenioForm({
         <div>
           <Label htmlFor="cv-notas">Notas (opcional)</Label>
           <Input id="cv-notas" name="notas" defaultValue={editando?.notas ?? ""} />
+        </div>
+
+        <div className="rounded-lg border border-line bg-surface-2/40 p-2.5">
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              name="auto_enviar"
+              checked={autoEnviar}
+              onChange={(e) => setAutoEnviar(e.target.checked)}
+              className="mt-0.5 h-4 w-4 cursor-pointer rounded border-line accent-accent"
+            />
+            Enviar correo automáticamente cuando se genere un caso por
+            reposición
+          </label>
+          {autoEnviar && !cantidadMinima && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
+              Recomendado fijar una cantidad mínima para que la orden sea
+              siempre la misma.
+            </p>
+          )}
+          {autoEnviar && !emailAutomaticoDisponible && (
+            <p className="mt-1.5 text-xs text-faint">
+              El envío real de correo todavía no está conectado (falta
+              configurar Resend) — por ahora el caso se quedará en
+              &quot;pendiente&quot; con una nota en vez de mandarse solo.
+            </p>
+          )}
         </div>
 
         {error && (

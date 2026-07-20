@@ -491,6 +491,14 @@ export function ProveedoresView({
                         </InfoTooltip>
                       </>
                     )}
+                    {c.correo_enviado_at && (
+                      <span
+                        title={`Correo enviado automáticamente el ${formatDate(c.correo_enviado_at)}`}
+                        className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted"
+                      >
+                        <Mail className="h-3 w-3" /> Correo enviado
+                      </span>
+                    )}
                   </p>
                   <p className="mt-0.5 text-xs text-muted">
                     {c.proveedores?.nombre ??

@@ -24,6 +24,7 @@ interface DatosConvenio {
   condiciones_pago: string | null;
   vigencia_hasta: string | null;
   notas: string | null;
+  auto_enviar: boolean;
 }
 
 function parsearFormData(formData: FormData): DatosConvenio | { error: string } {
@@ -52,6 +53,7 @@ function parsearFormData(formData: FormData): DatosConvenio | { error: string } 
   const condiciones_pago = String(formData.get("condiciones_pago") ?? "").trim() || null;
   const vigencia_hasta = String(formData.get("vigencia_hasta") ?? "").trim() || null;
   const notas = String(formData.get("notas") ?? "").trim() || null;
+  const auto_enviar = formData.get("auto_enviar") === "on";
 
   return {
     proveedor_id,
@@ -62,6 +64,7 @@ function parsearFormData(formData: FormData): DatosConvenio | { error: string } 
     condiciones_pago,
     vigencia_hasta,
     notas,
+    auto_enviar,
   };
 }
 

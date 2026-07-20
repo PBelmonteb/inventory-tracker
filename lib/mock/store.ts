@@ -1034,6 +1034,7 @@ export const store = {
       nivel_riesgo: null,
       dias_cobertura_restante: null,
       lead_time_dias_usado: null,
+      correo_enviado_at: null,
       created_at: now,
       updated_at: now,
     };
@@ -1205,6 +1206,20 @@ export const store = {
       caso.nivel_riesgo = riesgo.nivelRiesgo;
       caso.dias_cobertura_restante = riesgo.diasCobertura;
       caso.lead_time_dias_usado = riesgo.leadTimeUsado;
+
+      // Opt-in por convenio: en DEMO no hay Resend real que llamar, así
+      // que se simula el envío siempre con éxito (mismo criterio que
+      // "Simular correo" para el webhook entrante) — deja probar el flujo
+      // completo sin depender de credenciales reales.
+      if (convenio?.auto_enviar) {
+        if (!proveedor?.contacto) {
+          caso.descripcion = `${caso.descripcion} Envío automático configurado pero el proveedor no tiene correo registrado.`;
+        } else {
+          caso.estado = "ordenado";
+          caso.correo_enviado_at = new Date().toISOString();
+          caso.descripcion = `${caso.descripcion} Orden confirmada y enviada automáticamente por convenio (simulado en modo demo).`;
+        }
+      }
 
       store.atenderNotificacionesDeMaterial(m.id, caso.id);
       db.notificaciones.push({

@@ -29,12 +29,16 @@ describe.skipIf(!tieneCredenciales)("Convenios con proveedores", () => {
     proveedorId = materialId = convenioId = null;
   });
 
-  async function crearProveedor(diasEntregaDeclarado: number) {
+  async function crearProveedor(
+    diasEntregaDeclarado: number,
+    contacto: string | null = null
+  ) {
     const { data, error } = await admin
       .from("proveedores")
       .insert({
         nombre: `[test] proveedor convenio ${Date.now()}`,
         dias_entrega_declarado: diasEntregaDeclarado,
+        contacto,
       })
       .select()
       .single();
@@ -171,5 +175,47 @@ describe.skipIf(!tieneCredenciales)("Convenios con proveedores", () => {
       .single();
     expect(Number(caso!.lead_time_dias_usado)).toBe(10); // declarado, no pactado
     expect(caso!.descripcion).not.toMatch(/convenio vigente/i);
+  });
+
+  describe("envío automático de orden (auto_enviar)", () => {
+    it("con auto_enviar pero sin correo del proveedor: el caso se queda en pendiente con una nota", async () => {
+      const provId = await crearProveedor(10, null); // sin contacto
+      const matId = await crearMaterial(provId);
+      await crearConvenio(provId, matId, { auto_enviar: true });
+
+      await generarCasosAutomaticosPorStockBajo(admin, { materialIds: [matId] });
+
+      const { data: caso } = await admin
+        .from("casos_compra")
+        .select("estado, correo_enviado_at, descripcion")
+        .eq("material_id", matId)
+        .single();
+      expect(caso!.estado).toBe("pendiente");
+      expect(caso!.correo_enviado_at).toBeNull();
+      expect(caso!.descripcion).toMatch(/no tiene correo registrado/i);
+    });
+
+    it("con auto_enviar y correo, pero sin el servicio de correo configurado en este entorno: se queda en pendiente, nunca finge un envío", async () => {
+      // Este test corre sin RESEND_API_KEY en el entorno (es el estado real
+      // hasta que se configure un dominio) — verifica el camino seguro por
+      // defecto: nunca marcar "ordenado"/correo_enviado_at sin haber
+      // enviado nada de verdad.
+      expect(process.env.RESEND_API_KEY).toBeFalsy();
+
+      const provId = await crearProveedor(10, "compras@proveedor-test.mx");
+      const matId = await crearMaterial(provId);
+      await crearConvenio(provId, matId, { auto_enviar: true });
+
+      await generarCasosAutomaticosPorStockBajo(admin, { materialIds: [matId] });
+
+      const { data: caso } = await admin
+        .from("casos_compra")
+        .select("estado, correo_enviado_at, descripcion")
+        .eq("material_id", matId)
+        .single();
+      expect(caso!.estado).toBe("pendiente");
+      expect(caso!.correo_enviado_at).toBeNull();
+      expect(caso!.descripcion).toMatch(/envío automático configurado pero falló/i);
+    });
   });
 });

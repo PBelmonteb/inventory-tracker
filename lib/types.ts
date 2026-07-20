@@ -173,6 +173,10 @@ export interface Convenio {
   vigencia_hasta: string | null;
   notas: string | null;
   activo: boolean;
+  // Opt-in: si está en true, la reposición automática manda sola el
+  // correo de confirmación de orden (lib/email.ts) en vez de dejar el
+  // caso en "pendiente" esperando revisión humana.
+  auto_enviar: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -290,6 +294,9 @@ export interface CasoCompra {
   nivel_riesgo: NivelRiesgoStock | null;
   dias_cobertura_restante: number | null;
   lead_time_dias_usado: number | null;
+  // Solo se llena si el envío automático de orden por convenio tuvo éxito
+  // de verdad (lib/email.ts) — nunca se finge un envío que no ocurrió.
+  correo_enviado_at: string | null;
   created_at: string;
   updated_at: string;
 }
