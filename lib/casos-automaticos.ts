@@ -19,6 +19,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
 import { evaluarRiesgoStock } from "@/lib/riesgo-stock";
+import { esConvenioVigente } from "@/lib/convenios";
+import type { Convenio } from "@/lib/types";
 
 export interface ResumenReposicionAutomatica {
   materialesRevisados: number;
@@ -65,6 +67,7 @@ export async function generarCasosAutomaticosPorStockBajo(
     { data: proveedoresRows },
     { data: salidasRows },
     { data: recibidasRows },
+    { data: conveniosRows },
   ] = await Promise.all([
     supabase
       .from("casos_compra")
@@ -85,6 +88,11 @@ export async function generarCasosAutomaticosPorStockBajo(
       .select("material_id, created_at, updated_at")
       .in("material_id", materialIds)
       .eq("estado", "recibido"),
+    supabase
+      .from("convenios_proveedor")
+      .select("*")
+      .in("material_id", materialIds)
+      .eq("activo", true),
   ]);
 
   const materialesConCasoAbierto = new Set(
@@ -127,6 +135,16 @@ export async function generarCasosAutomaticosPorStockBajo(
     recibidasPorMaterial.set(c.material_id, lista);
   }
 
+  // Convenio vigente por par proveedor+material (a lo más uno por par, ver
+  // el índice único de la migración 0018) — le gana al WAC/declarado del
+  // proveedor cuando existe.
+  const convenioPorPar = new Map<string, Convenio>();
+  for (const c of (conveniosRows ?? []) as Convenio[]) {
+    if (esConvenioVigente(c)) {
+      convenioPorPar.set(`${c.proveedor_id}:${c.material_id}`, c);
+    }
+  }
+
   let casosCreados = 0;
 
   for (const material of materiales) {
@@ -139,8 +157,16 @@ export async function generarCasosAutomaticosPorStockBajo(
       material.costo_unitario > 0
         ? calcularEOQ({ salidas, costoUnitario: material.costo_unitario })
         : null;
+    const convenio = convenioPorPar.get(
+      `${material.proveedor_id}:${material.id}`
+    );
+    // El tiempo de entrega pactado en el convenio es más preciso que el
+    // declarado a nivel proveedor — pero el inferido del historial real
+    // (dentro de evaluarRiesgoStock) le sigue ganando a ambos.
     const proveedorDiasEntrega =
-      diasEntregaPorProveedor.get(material.proveedor_id) ?? null;
+      convenio?.dias_entrega_pactado ??
+      diasEntregaPorProveedor.get(material.proveedor_id) ??
+      null;
 
     const riesgo = evaluarRiesgoStock({
       stockActual: material.stock_actual,
@@ -151,10 +177,15 @@ export async function generarCasosAutomaticosPorStockBajo(
     });
     if (!riesgo.debeCrearCaso) continue;
 
-    const cantidad = riesgo.cantidadSugerida;
+    // La cantidad mínima del convenio es un piso contractual: nunca se pide
+    // menos, aunque el cálculo sugiera menos.
+    const cantidad = Math.max(riesgo.cantidadSugerida, convenio?.cantidad_minima ?? 0);
+    const precioUnitario = convenio?.precio_pactado ?? material.costo_unitario;
     const referencia = `OC-${Date.now().toString().slice(-6)}-${casosCreados}`;
-    const montoEstimado =
-      material.costo_unitario > 0 ? material.costo_unitario * cantidad : 0;
+    const montoEstimado = precioUnitario > 0 ? precioUnitario * cantidad : 0;
+    const notaConvenio = convenio
+      ? ` Precio según convenio vigente: $${convenio.precio_pactado.toFixed(2)}/unidad.`
+      : "";
 
     const { data: caso, error } = await supabase
       .from("casos_compra")
@@ -162,7 +193,7 @@ export async function generarCasosAutomaticosPorStockBajo(
         proveedor_id: material.proveedor_id,
         material_id: material.id,
         titulo: `Reposición automática: ${material.nombre}`,
-        descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}.`,
+        descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}.${notaConvenio}`,
         monto_estimado: montoEstimado,
         referencia,
         estado: "pendiente",

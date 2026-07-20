@@ -14,8 +14,9 @@ import {
   solicitarCotizacion,
 } from "@/lib/actions/compras";
 import { obtenerEOQ } from "@/lib/actions/materiales";
+import { obtenerConvenioVigente } from "@/lib/actions/convenios";
 import { formatMoney, formatQty } from "@/lib/utils";
-import type { MaterialConRelaciones } from "@/lib/types";
+import type { Convenio, MaterialConRelaciones } from "@/lib/types";
 import type { ResultadoEOQ } from "@/lib/eoq";
 import { CheckCircle2, Mail, TriangleAlert } from "lucide-react";
 
@@ -71,11 +72,17 @@ export function SolicitudCotizacionForm({
   const [enviado, setEnviado] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [eoq, setEoq] = useState<ResultadoEOQ | null>(null);
+  const [convenio, setConvenio] = useState<Convenio | null>(null);
+  // La cantidad solo vive embebida en el texto del correo; se rastrea aparte
+  // para poder calcular monto_estimado = precio pactado × cantidad cuando
+  // hay convenio, y para que los botones "Usar X" sepan qué línea reemplazar.
+  const [cantidadActual, setCantidadActual] = useState(cantidadSugerida);
 
   useEffect(() => {
     if (open) {
       setAsunto(asuntoInicial);
       setCuerpo(cuerpoInicial);
+      setCantidadActual(cantidadSugerida);
       setError(null);
       setEnviado(false);
     }
@@ -98,10 +105,34 @@ export function SolicitudCotizacionForm({
     };
   }, [open, material.id, material.costo_unitario]);
 
+  // Fetch on-demand del convenio vigente para este proveedor+material.
+  useEffect(() => {
+    if (!open || !material.proveedor_id) {
+      setConvenio(null);
+      return;
+    }
+    let cancelado = false;
+    obtenerConvenioVigente(material.id, material.proveedor_id).then((c) => {
+      if (!cancelado) setConvenio(c);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [open, material.id, material.proveedor_id]);
+
+  function cambiarCantidad(nuevaCantidad: number) {
+    setCuerpo((c) => c.replace(lineaCantidad(cantidadActual), lineaCantidad(nuevaCantidad)));
+    setCantidadActual(nuevaCantidad);
+  }
+
   function usarCantidadEOQ() {
     if (!eoq?.disponible) return;
-    const nuevaCantidad = Math.ceil(eoq.cantidadEconomica);
-    setCuerpo((c) => c.replace(lineaCantidad(cantidadSugerida), lineaCantidad(nuevaCantidad)));
+    cambiarCantidad(Math.ceil(eoq.cantidadEconomica));
+  }
+
+  function usarConvenio() {
+    if (!convenio) return;
+    cambiarCantidad(convenio.cantidad_minima ?? cantidadActual);
   }
 
   async function registrar(abrirCorreo: boolean) {
@@ -126,6 +157,10 @@ export function SolicitudCotizacionForm({
     fd.set("titulo", asunto);
     fd.set("descripcion", cuerpo.slice(0, 280));
     fd.set("es_bajo", bajo ? "1" : "0");
+    // Sin convenio no hay precio conocido para estimar un monto (igual que
+    // antes: 0, editable después desde el caso una vez que llegue la cotización).
+    if (convenio)
+      fd.set("monto_estimado", String(convenio.precio_pactado * cantidadActual));
     const res = casoExistente
       ? await enviarCotizacionCasoExistente(casoExistente.id, fd)
       : await solicitarCotizacion(fd);
@@ -261,6 +296,31 @@ export function SolicitudCotizacionForm({
               <p className="mt-1 text-faint">{eoq.razonNoDisponible}</p>
             )}
           </div>
+
+          {convenio && (
+            <div className="rounded-lg border border-line bg-surface-2/40 p-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-fg">Convenio vigente</span>
+                <button
+                  type="button"
+                  onClick={usarConvenio}
+                  className="cursor-pointer font-medium text-accent hover:underline"
+                >
+                  Usar convenio
+                </button>
+              </div>
+              <p className="mt-1 text-muted">
+                ${convenio.precio_pactado.toFixed(2)}/unidad
+                {convenio.cantidad_minima
+                  ? ` · mínimo ${formatQty(convenio.cantidad_minima, material.unidad)}`
+                  : ""}
+                {convenio.dias_entrega_pactado
+                  ? ` · entrega ~${convenio.dias_entrega_pactado} días`
+                  : ""}
+                {convenio.condiciones_pago ? ` · ${convenio.condiciones_pago}` : ""}
+              </p>
+            </div>
+          )}
 
           <div>
             <Label htmlFor="cot-asunto">Asunto</Label>

@@ -24,6 +24,7 @@ import {
   Settings,
   Factory,
   LogOut,
+  FileText,
 } from "lucide-react";
 
 const NAV = [
@@ -40,6 +41,7 @@ const NAV = [
   { href: "/auditoria", label: "Auditoría", icon: ShieldCheck, gestor: true },
   { href: "/usuarios", label: "Usuarios", icon: UserCog, gestor: true },
   { href: "/catalogos", label: "Catálogos", icon: Settings, gestor: true },
+  { href: "/convenios", label: "Convenios", icon: FileText, gestor: true },
 ];
 
 function iniciales(nombre: string) {

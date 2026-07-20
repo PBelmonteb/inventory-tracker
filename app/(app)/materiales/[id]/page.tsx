@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { MaterialDetail } from "@/components/material-detail";
 import { getCurrentProfile, esGestor } from "@/lib/auth";
+import { obtenerConvenioVigente } from "@/lib/actions/convenios";
 import {
   getBom,
   getCategorias,
@@ -36,6 +37,7 @@ export default async function MaterialPage({
     stockPorUbicacion,
     bom,
     materiales,
+    convenio,
   ] = await Promise.all([
     getCurrentProfile(),
     getMovimientosDeMaterial(id),
@@ -47,6 +49,9 @@ export default async function MaterialPage({
     getStockPorUbicacion(id),
     getBom(id),
     getMateriales(),
+    material.proveedor_id
+      ? obtenerConvenioVigente(id, material.proveedor_id)
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -62,6 +67,7 @@ export default async function MaterialPage({
       bom={bom}
       materialesDisponibles={materiales}
       esGestor={esGestor(profile)}
+      convenio={convenio}
     />
   );
 }

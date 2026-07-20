@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Button, Input, Label, Select } from "@/components/ui";
 import { ResponsableSelect } from "@/components/responsable-select";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
 import { crearCasoCompra } from "@/lib/actions/compras";
+import { obtenerConvenioVigente } from "@/lib/actions/convenios";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
-import type { Proveedor } from "@/lib/types";
+import type { Convenio, Proveedor } from "@/lib/types";
 
 type MaterialOpcion = { id: string; nombre: string; sku: string | null };
 
@@ -40,6 +41,8 @@ export function CasoCompraForm({
   const [responsableId, setResponsableId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [convenio, setConvenio] = useState<Convenio | null>(null);
+  const montoRef = useRef<HTMLInputElement>(null);
 
   // Sincroniza los selects con el prefill cada vez que se abre.
   useEffect(() => {
@@ -50,6 +53,29 @@ export function CasoCompraForm({
       setError(null);
     }
   }, [open, prefill]);
+
+  // Con proveedor + material elegidos, busca si hay un convenio vigente
+  // para ofrecer su precio pactado (no reemplaza monto_estimado a la
+  // fuerza — el botón "Usar convenio" lo hace explícito).
+  useEffect(() => {
+    if (!open || !proveedorId || !materialId) {
+      setConvenio(null);
+      return;
+    }
+    let cancelado = false;
+    obtenerConvenioVigente(materialId, proveedorId).then((c) => {
+      if (!cancelado) setConvenio(c);
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, [open, proveedorId, materialId]);
+
+  function usarConvenio() {
+    if (!convenio || !montoRef.current) return;
+    const monto = convenio.precio_pactado * (convenio.cantidad_minima ?? 1);
+    montoRef.current.value = monto.toFixed(2);
+  }
 
   async function onSubmit(formData: FormData) {
     setError(null);
@@ -139,6 +165,7 @@ export function CasoCompraForm({
         <div>
           <Label htmlFor="cc-monto">Monto estimado (MXN)</Label>
           <Input
+            ref={montoRef}
             id="cc-monto"
             name="monto_estimado"
             type="number"
@@ -146,6 +173,27 @@ export function CasoCompraForm({
             min="0"
             placeholder="0.00"
           />
+          {convenio && (
+            <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2/40 px-2.5 py-2 text-xs">
+              <span className="text-muted">
+                Convenio vigente: ${convenio.precio_pactado.toFixed(2)}/unidad
+                {convenio.cantidad_minima
+                  ? ` · mínimo ${convenio.cantidad_minima}`
+                  : ""}
+                {convenio.dias_entrega_pactado
+                  ? ` · entrega ~${convenio.dias_entrega_pactado} días`
+                  : ""}
+                {convenio.condiciones_pago ? ` · ${convenio.condiciones_pago}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={usarConvenio}
+                className="cursor-pointer whitespace-nowrap font-medium text-accent hover:underline"
+              >
+                Usar convenio
+              </button>
+            </div>
+          )}
         </div>
 
         <div>

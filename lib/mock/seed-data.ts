@@ -6,6 +6,7 @@ import type {
   BomItem,
   Categoria,
   Cliente,
+  Convenio,
   HistorialPrecio,
   Material,
   Movimiento,
@@ -63,6 +64,7 @@ export function makeSeed(): {
     updated_at: string;
   }[];
   bom_items: BomItem[];
+  convenios: Convenio[];
 } {
   const categorias: Categoria[] = [
     { id: "cat-perfiles", nombre: "Perfiles de aluminio", created_at: diasAtras(60) },
@@ -381,6 +383,39 @@ export function makeSeed(): {
     hist(m.id, "venta", m.precio_venta, "manual", 40),
   ]);
 
+  // Convenios de ejemplo: precio pactado por debajo del WAC (el negocio de
+  // negociar uno) y condiciones más específicas que el proveedor en general.
+  const convenios: Convenio[] = [
+    {
+      id: "conv-perf001",
+      proveedor_id: "prov-norte",
+      material_id: "mat-perf001",
+      precio_pactado: 80.0,
+      cantidad_minima: 100,
+      dias_entrega_pactado: 7, // más rápido que el declarado del proveedor (10)
+      condiciones_pago: "30 días fecha factura",
+      vigencia_hasta: null, // sin vencimiento
+      notas: "Convenio anual, revisar en enero.",
+      activo: true,
+      created_at: diasAtras(30),
+      updated_at: diasAtras(30),
+    },
+    {
+      id: "conv-her001",
+      proveedor_id: "prov-mty",
+      material_id: "mat-her001",
+      precio_pactado: 26.5,
+      cantidad_minima: 200,
+      dias_entrega_pactado: 4, // más rápido que el declarado del proveedor (5)
+      condiciones_pago: "Anticipo 50%, saldo contra entrega",
+      vigencia_hasta: diasAtras(-180).slice(0, 10), // vence en ~6 meses
+      notas: null,
+      activo: true,
+      created_at: diasAtras(15),
+      updated_at: diasAtras(15),
+    },
+  ];
+
   return {
     profiles: [...PERFILES_DEMO],
     categorias,
@@ -399,5 +434,6 @@ export function makeSeed(): {
     auditoria: [],
     material_stock_ubicacion: [],
     bom_items: [],
+    convenios,
   };
 }

@@ -133,7 +133,12 @@ export interface Auditoria {
 /* ---------------- Historial de costos y precios ---------------- */
 
 export type TipoPrecio = "costo" | "venta";
-export type FuentePrecio = "compra" | "manual" | "cotizacion" | "inicial";
+export type FuentePrecio =
+  | "compra"
+  | "manual"
+  | "cotizacion"
+  | "inicial"
+  | "convenio";
 
 export interface HistorialPrecio {
   id: string;
@@ -146,6 +151,35 @@ export interface HistorialPrecio {
   proveedor_id: string | null;
   cantidad: number | null;
   created_at: string;
+}
+
+/* ---------------- Convenios con proveedores ---------------- */
+
+// Precio pactado + condiciones negociadas para un par proveedor+material
+// puntual. Solo un convenio puede estar `activo` a la vez por ese par (ver
+// migración 0018) — para cambiar el precio se desactiva el viejo y se crea
+// uno nuevo, conservando el historial.
+export interface Convenio {
+  id: string;
+  proveedor_id: string;
+  material_id: string;
+  precio_pactado: number;
+  cantidad_minima: number | null;
+  // Tiempo de entrega comprometido específicamente en este convenio — más
+  // preciso que proveedores.dias_entrega_declarado (general) cuando existe.
+  dias_entrega_pactado: number | null;
+  condiciones_pago: string | null;
+  // null = sin vencimiento.
+  vigencia_hasta: string | null;
+  notas: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConvenioConRelaciones extends Convenio {
+  proveedores: Pick<Proveedor, "id" | "nombre"> | null;
+  materiales: Pick<Material, "id" | "nombre" | "sku" | "unidad"> | null;
 }
 
 export interface MovimientoConRelaciones extends Movimiento {

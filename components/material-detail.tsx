@@ -16,6 +16,7 @@ import { formatDate, formatMoney, formatQty, nivelStock } from "@/lib/utils";
 import type {
   BomItemConMaterial,
   Categoria,
+  Convenio,
   HistorialPrecio,
   MaterialConRelaciones,
   MovimientoConRelaciones,
@@ -28,6 +29,7 @@ import {
   ArrowDownCircle,
   ArrowRightLeft,
   ArrowUpCircle,
+  FileText,
   Mail,
   Pencil,
   Plus,
@@ -53,6 +55,7 @@ export function MaterialDetail({
   bom,
   materialesDisponibles,
   esGestor,
+  convenio,
 }: {
   material: MaterialConRelaciones;
   movimientos: MovimientoConRelaciones[];
@@ -65,6 +68,7 @@ export function MaterialDetail({
   bom: BomItemConMaterial[];
   materialesDisponibles: MaterialConRelaciones[];
   esGestor: boolean;
+  convenio: Convenio | null;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -277,6 +281,38 @@ export function MaterialDetail({
       </div>
 
       <PrecioHistorial material={material} historial={historial} />
+
+      {convenio && (
+        <Card className="p-4 md:p-5">
+          <div className="mb-2 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-accent" />
+            <h2 className="font-semibold text-fg">Convenio vigente</h2>
+          </div>
+          <p className="text-sm text-muted">
+            <span className="font-medium text-fg">
+              {material.proveedores?.nombre ?? "Proveedor"}
+            </span>{" "}
+            — {formatMoney(convenio.precio_pactado)}/unidad
+            {convenio.cantidad_minima
+              ? ` · mínimo ${formatQty(convenio.cantidad_minima, material.unidad)}`
+              : ""}
+            {convenio.dias_entrega_pactado
+              ? ` · entrega ~${convenio.dias_entrega_pactado} días`
+              : ""}
+          </p>
+          {convenio.condiciones_pago && (
+            <p className="mt-1 text-xs text-faint">{convenio.condiciones_pago}</p>
+          )}
+          {esGestor && (
+            <Link
+              href="/convenios"
+              className="mt-2 inline-block text-xs font-medium text-accent hover:underline"
+            >
+              Administrar convenios →
+            </Link>
+          )}
+        </Card>
+      )}
 
       <StockPorUbicacionCard
         filas={stockPorUbicacion}

@@ -176,6 +176,9 @@ export async function solicitarCotizacion(
   const titulo = String(formData.get("titulo") ?? "").trim();
   const descripcion = String(formData.get("descripcion") ?? "").trim() || null;
   const esBajo = String(formData.get("es_bajo") ?? "") === "1";
+  // Sin convenio, el formulario no manda este campo — se queda en 0 como
+  // antes (se afina después, cuando llegue la cotización real).
+  const monto_estimado = Number(formData.get("monto_estimado") ?? 0) || 0;
   let referencia = String(formData.get("referencia") ?? "").trim();
   if (!referencia) referencia = `OC-${Date.now().toString().slice(-6)}`;
 
@@ -192,7 +195,7 @@ export async function solicitarCotizacion(
         material_id,
         titulo,
         descripcion,
-        monto_estimado: 0,
+        monto_estimado,
         referencia,
         origen,
         estado: "cotizando",
@@ -211,7 +214,7 @@ export async function solicitarCotizacion(
         material_id,
         titulo,
         descripcion,
-        monto_estimado: 0,
+        monto_estimado,
         referencia,
         origen,
         estado: "cotizando",
@@ -252,9 +255,15 @@ export async function enviarCotizacionCasoExistente(
   if (!casoId) return { ok: false, error: "Caso inválido" };
   if (!titulo) return { ok: false, error: "El asunto es obligatorio" };
 
+  // Solo se manda si el formulario encontró un convenio (el caso puede ya
+  // traer un monto_estimado válido de antes, p. ej. de la reposición
+  // automática — no tiene caso pisarlo con 0 si esta vez no hay convenio).
+  const montoRaw = formData.get("monto_estimado");
+  const monto_estimado = montoRaw != null ? Number(montoRaw) : null;
+
   if (DEMO) {
     try {
-      store.enviarCotizacionCasoExistente(casoId, titulo, descripcion);
+      store.enviarCotizacionCasoExistente(casoId, titulo, descripcion, monto_estimado);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -275,6 +284,7 @@ export async function enviarCotizacionCasoExistente(
         descripcion,
         estado: nuevoEstado,
         updated_at: new Date().toISOString(),
+        ...(monto_estimado !== null ? { monto_estimado } : {}),
       })
       .eq("id", casoId);
     if (error) return { ok: false, error: mensajeSupabase(error) };

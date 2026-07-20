@@ -10,6 +10,7 @@ import type {
   CasoVentaConRelaciones,
   Categoria,
   Cliente,
+  ConvenioConRelaciones,
   HistorialPrecio,
   MaterialConRelaciones,
   MovimientoConRelaciones,
@@ -414,6 +415,16 @@ export async function getCasosCompra(): Promise<CasoCompraConRelaciones[]> {
     .select("*, proveedores(id,nombre), materiales(id,nombre,sku)")
     .order("updated_at", { ascending: false });
   return (data as CasoCompraConRelaciones[]) ?? [];
+}
+
+export async function getConvenios(): Promise<ConvenioConRelaciones[]> {
+  if (DEMO) return store.getConvenios();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("convenios_proveedor")
+    .select("*, proveedores(id,nombre), materiales(id,nombre,sku,unidad)")
+    .order("created_at", { ascending: false });
+  return (data as ConvenioConRelaciones[]) ?? [];
 }
 
 /* ---------------- Portal de clientes ---------------- */

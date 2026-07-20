@@ -14,6 +14,8 @@ import type {
   CasoVentaItem,
   Categoria,
   Cliente,
+  Convenio,
+  ConvenioConRelaciones,
   EstadoCasoCompra,
   EstadoCasoVenta,
   HistorialPrecio,
@@ -40,6 +42,7 @@ import { puntoAviso } from "@/lib/utils";
 import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
 import { evaluarRiesgoStock } from "@/lib/riesgo-stock";
+import { esConvenioVigente } from "@/lib/convenios";
 import type { ResumenReposicionAutomatica } from "@/lib/casos-automaticos";
 
 interface DB {
@@ -68,6 +71,8 @@ interface DB {
   }[];
   // Receta de producción ("1 ventana = X perfil + Y herrajes").
   bom_items: BomItem[];
+  // Precio pactado + condiciones por par proveedor+material.
+  convenios: Convenio[];
 }
 
 const g = globalThis as unknown as { __inventarioDemoDB?: DB };
@@ -161,6 +166,17 @@ if (!g.__inventarioDemoDB) {
     if ((nn as { salida_pendiente_id?: unknown }).salida_pendiente_id === undefined)
       (nn as unknown as { salida_pendiente_id: string | null }).salida_pendiente_id = null;
   }
+  // Reposición automática (feature posterior).
+  for (const p of viejo.proveedores) {
+    if (p.dias_entrega_declarado === undefined) p.dias_entrega_declarado = null;
+  }
+  for (const c of viejo.casos_compra) {
+    if (c.nivel_riesgo === undefined) c.nivel_riesgo = null;
+    if (c.dias_cobertura_restante === undefined) c.dias_cobertura_restante = null;
+    if (c.lead_time_dias_usado === undefined) c.lead_time_dias_usado = null;
+  }
+  // Convenios con proveedores (feature posterior).
+  if (!viejo.convenios) viejo.convenios = [];
 }
 const db: DB = g.__inventarioDemoDB;
 
@@ -1100,12 +1116,14 @@ export const store = {
   enviarCotizacionCasoExistente(
     casoId: string,
     titulo: string,
-    descripcion: string | null
+    descripcion: string | null,
+    montoEstimado: number | null = null
   ): void {
     const c = db.casos_compra.find((x) => x.id === casoId);
     if (!c) throw new Error("Caso de compra no encontrado");
     c.titulo = titulo;
     c.descripcion = descripcion;
+    if (montoEstimado !== null) c.monto_estimado = montoEstimado;
     if (c.estado === "pendiente") c.estado = "cotizando";
     c.updated_at = new Date().toISOString();
     if (c.material_id) store.atenderNotificacionesDeMaterial(c.material_id, c.id);
@@ -1155,24 +1173,32 @@ export const store = {
           ? calcularEOQ({ salidas, costoUnitario: m.costo_unitario })
           : null;
       const proveedor = db.proveedores.find((p) => p.id === proveedorId);
+      const convenio = db.convenios.find(
+        (c) => c.proveedor_id === proveedorId && c.material_id === m.id && esConvenioVigente(c)
+      );
 
       const riesgo = evaluarRiesgoStock({
         stockActual: m.stock_actual,
         stockMinimo: m.stock_minimo,
-        proveedorDiasEntrega: proveedor?.dias_entrega_declarado ?? null,
+        proveedorDiasEntrega:
+          convenio?.dias_entrega_pactado ?? proveedor?.dias_entrega_declarado ?? null,
         stockSugerido,
         eoq,
       });
       if (!riesgo.debeCrearCaso) continue;
 
       const referencia = `OC-${Date.now().toString().slice(-6)}`;
-      const cantidad = riesgo.cantidadSugerida;
+      const cantidad = Math.max(riesgo.cantidadSugerida, convenio?.cantidad_minima ?? 0);
+      const precioUnitario = convenio?.precio_pactado ?? m.costo_unitario;
+      const notaConvenio = convenio
+        ? ` Precio según convenio vigente: $${convenio.precio_pactado.toFixed(2)}/unidad.`
+        : "";
       const caso = store.crearCasoCompra({
         proveedor_id: proveedorId,
         material_id: m.id,
         titulo: `Reposición automática: ${m.nombre}`,
-        descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${m.unidad}.`,
-        monto_estimado: m.costo_unitario > 0 ? m.costo_unitario * cantidad : 0,
+        descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${m.unidad}.${notaConvenio}`,
+        monto_estimado: precioUnitario > 0 ? precioUnitario * cantidad : 0,
         referencia,
         origen: "stock_bajo",
       });
@@ -1200,6 +1226,119 @@ export const store = {
     }
 
     return { materialesRevisados: candidatos.length, casosCreados };
+  },
+
+  /* ---------------- Convenios con proveedores ---------------- */
+
+  getConvenios(): ConvenioConRelaciones[] {
+    return [...db.convenios]
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .map((c) => {
+        const p = db.proveedores.find((x) => x.id === c.proveedor_id);
+        const m = db.materiales.find((x) => x.id === c.material_id);
+        return {
+          ...c,
+          proveedores: p ? { id: p.id, nombre: p.nombre } : null,
+          materiales: m
+            ? { id: m.id, nombre: m.nombre, sku: m.sku, unidad: m.unidad }
+            : null,
+        };
+      });
+  },
+
+  obtenerConvenioVigente(materialId: string, proveedorId: string): Convenio | null {
+    const c = db.convenios.find(
+      (x) =>
+        x.material_id === materialId &&
+        x.proveedor_id === proveedorId &&
+        esConvenioVigente(x)
+    );
+    return c ?? null;
+  },
+
+  crearConvenio(
+    datos: Omit<Convenio, "id" | "activo" | "created_at" | "updated_at">
+  ): Convenio {
+    const yaExiste = db.convenios.some(
+      (c) =>
+        c.proveedor_id === datos.proveedor_id &&
+        c.material_id === datos.material_id &&
+        c.activo
+    );
+    if (yaExiste)
+      throw new Error(
+        "Ya existe un convenio activo para este proveedor y material. Desactívalo primero para crear uno nuevo."
+      );
+
+    const now = new Date().toISOString();
+    const convenio: Convenio = {
+      ...datos,
+      id: uid(),
+      activo: true,
+      created_at: now,
+      updated_at: now,
+    };
+    db.convenios.push(convenio);
+
+    const m = db.materiales.find((x) => x.id === datos.material_id);
+    db.historial_precios.push({
+      id: uid(),
+      material_id: datos.material_id,
+      material_nombre: m?.nombre ?? null,
+      material_sku: m?.sku ?? null,
+      tipo: "costo",
+      valor: datos.precio_pactado,
+      fuente: "convenio",
+      proveedor_id: datos.proveedor_id,
+      cantidad: datos.cantidad_minima,
+      created_at: now,
+    });
+    return convenio;
+  },
+
+  actualizarConvenio(
+    id: string,
+    datos: Omit<Convenio, "id" | "activo" | "created_at" | "updated_at">
+  ): void {
+    const c = db.convenios.find((x) => x.id === id);
+    if (!c) throw new Error("Convenio no encontrado");
+    const yaExiste = db.convenios.some(
+      (x) =>
+        x.id !== id &&
+        x.proveedor_id === datos.proveedor_id &&
+        x.material_id === datos.material_id &&
+        x.activo
+    );
+    if (yaExiste)
+      throw new Error(
+        "Ya existe otro convenio activo para este proveedor y material."
+      );
+
+    const precioAnterior = c.precio_pactado;
+    Object.assign(c, datos, { updated_at: new Date().toISOString() });
+
+    if (datos.precio_pactado !== precioAnterior) {
+      const m = db.materiales.find((x) => x.id === datos.material_id);
+      db.historial_precios.push({
+        id: uid(),
+        material_id: datos.material_id,
+        material_nombre: m?.nombre ?? null,
+        material_sku: m?.sku ?? null,
+        tipo: "costo",
+        valor: datos.precio_pactado,
+        fuente: "convenio",
+        proveedor_id: datos.proveedor_id,
+        cantidad: datos.cantidad_minima,
+        created_at: new Date().toISOString(),
+      });
+    }
+  },
+
+  desactivarConvenio(id: string): void {
+    const c = db.convenios.find((x) => x.id === id);
+    if (!c) throw new Error("Convenio no encontrado");
+    c.activo = false;
+    c.updated_at = new Date().toISOString();
   },
 
   /* ---------------- Email entrante (webhook) ---------------- */
