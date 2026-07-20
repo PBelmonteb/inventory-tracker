@@ -9,7 +9,10 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Button, Input, Label } from "@/components/ui";
 import { InfoTooltip } from "@/components/info-tooltip";
-import { solicitarCotizacion } from "@/lib/actions/compras";
+import {
+  enviarCotizacionCasoExistente,
+  solicitarCotizacion,
+} from "@/lib/actions/compras";
 import { obtenerEOQ } from "@/lib/actions/materiales";
 import { formatMoney, formatQty } from "@/lib/utils";
 import type { MaterialConRelaciones } from "@/lib/types";
@@ -22,12 +25,17 @@ export function SolicitudCotizacionForm({
   material,
   proveedorNombre,
   proveedorEmail,
+  casoExistente,
 }: {
   open: boolean;
   onClose: () => void;
   material: MaterialConRelaciones;
   proveedorNombre: string | null;
   proveedorEmail: string | null;
+  // Si se abre desde el link del título de un caso ya creado (en vez de
+  // desde el detalle del material): en lugar de registrar un caso nuevo,
+  // actualiza este mismo (evita duplicarlo).
+  casoExistente?: { id: string };
 }) {
   const router = useRouter();
   const bajo = material.stock_actual <= material.stock_minimo;
@@ -118,7 +126,9 @@ export function SolicitudCotizacionForm({
     fd.set("titulo", asunto);
     fd.set("descripcion", cuerpo.slice(0, 280));
     fd.set("es_bajo", bajo ? "1" : "0");
-    const res = await solicitarCotizacion(fd);
+    const res = casoExistente
+      ? await enviarCotizacionCasoExistente(casoExistente.id, fd)
+      : await solicitarCotizacion(fd);
     setCargando(false);
     if (!res.ok) {
       setError(res.error);
@@ -141,9 +151,13 @@ export function SolicitudCotizacionForm({
                 Solicitud registrada
               </p>
               <p className="mt-1 text-muted">
-                {proveedorEmail
-                  ? "Se abrió tu correo con el mensaje listo para enviar. El caso quedó en el pipeline como “Cotizando”."
-                  : "El caso quedó en el pipeline como “Cotizando”."}
+                {proveedorEmail && casoExistente
+                  ? "Se abrió tu correo con el mensaje listo para enviar. Se actualizó el caso."
+                  : proveedorEmail
+                    ? "Se abrió tu correo con el mensaje listo para enviar. El caso quedó en el pipeline como “Cotizando”."
+                    : casoExistente
+                      ? "Se actualizó el caso."
+                      : "El caso quedó en el pipeline como “Cotizando”."}
               </p>
             </div>
           </div>
@@ -286,7 +300,7 @@ export function SolicitudCotizacionForm({
                 disabled={cargando}
                 onClick={() => registrar(false)}
               >
-                Solo registrar caso
+                {casoExistente ? "Solo actualizar caso" : "Solo registrar caso"}
               </Button>
             )}
             <Button type="submit" disabled={cargando || !proveedorEmail}>

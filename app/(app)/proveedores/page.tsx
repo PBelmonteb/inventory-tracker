@@ -32,6 +32,7 @@ export default async function ProveedoresPage() {
       casos={casos}
       proveedores={proveedores}
       materiales={opciones}
+      materialesCompletos={materiales}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
     />
   );

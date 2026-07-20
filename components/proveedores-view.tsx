@@ -14,6 +14,7 @@ import { SimuladorEmail } from "@/components/simulador-email";
 import { RecibirCompraForm } from "@/components/recibir-compra-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import { InfoTooltip } from "@/components/info-tooltip";
+import { SolicitudCotizacionForm } from "@/components/solicitud-cotizacion-form";
 import {
   asignarResponsableCasoCompra,
   cambiarEstadoCasoCompra,
@@ -26,6 +27,7 @@ import type { UsuarioAsignable } from "@/lib/actions/usuarios";
 import type {
   CasoCompraConRelaciones,
   EstadoCasoCompra,
+  MaterialConRelaciones,
   NivelRiesgoStock,
   NotificacionConRelaciones,
   OrigenCasoCompra,
@@ -81,12 +83,14 @@ export function ProveedoresView({
   casos,
   proveedores,
   materiales,
+  materialesCompletos,
   usuarios,
 }: {
   notificaciones: NotificacionConRelaciones[];
   casos: CasoCompraConRelaciones[];
   proveedores: Proveedor[];
   materiales: MaterialOpcion[];
+  materialesCompletos: MaterialConRelaciones[];
   usuarios: UsuarioAsignable[];
 }) {
   const router = useRouter();
@@ -99,6 +103,8 @@ export function ProveedoresView({
   const [filtroProveedor, setFiltroProveedor] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
   const [revisando, setRevisando] = useState(false);
+  const [cotizacionCaso, setCotizacionCaso] =
+    useState<CasoCompraConRelaciones | null>(null);
 
   // Esta vista solo maneja alertas de stock; las de asignación (personales)
   // viven en la campana global (NotificacionesProvider/Bell), no aquí.
@@ -139,6 +145,24 @@ export function ProveedoresView({
       titulo: n.materiales ? `Reabasto: ${n.materiales.nombre}` : "Reabasto",
     });
     setFormAbierto(true);
+  }
+
+  // Abre el formulario de correo (mailto) directo desde el nombre del caso,
+  // sin tener que ir a buscar el material en su detalle. Solo tiene sentido
+  // si el caso apunta a un material puntual (no los de varios ítems).
+  const materialDeCaso = (caso: CasoCompraConRelaciones) =>
+    caso.material_id
+      ? materialesCompletos.find((m) => m.id === caso.material_id)
+      : undefined;
+
+  function abrirCotizacionDesdeCaso(caso: CasoCompraConRelaciones) {
+    if (!materialDeCaso(caso)) {
+      alert(
+        "Este caso no tiene un material puntual asignado, así que no se puede abrir el formulario de cotización desde aquí."
+      );
+      return;
+    }
+    setCotizacionCaso(caso);
   }
 
   async function asignarResponsable(casoId: string, usuarioId: string) {
@@ -418,7 +442,18 @@ export function ProveedoresView({
               >
                 <div className="min-w-0">
                   <p className="flex items-center gap-2 text-sm font-medium text-fg">
-                    {c.titulo}
+                    {ABIERTOS.includes(c.estado) && materialDeCaso(c) ? (
+                      <button
+                        type="button"
+                        onClick={() => abrirCotizacionDesdeCaso(c)}
+                        title="Abrir formulario de cotización por correo"
+                        className="cursor-pointer text-left hover:text-accent hover:underline"
+                      >
+                        {c.titulo}
+                      </button>
+                    ) : (
+                      c.titulo
+                    )}
                     {c.referencia && (
                       <span className="text-xs font-normal text-faint">
                         {c.referencia}
@@ -517,6 +552,29 @@ export function ProveedoresView({
         caso={recibiendo}
         onClose={() => setRecibiendo(null)}
       />
+      {cotizacionCaso &&
+        (() => {
+          const material = materialDeCaso(cotizacionCaso);
+          if (!material) return null;
+          const proveedorDelMaterial = proveedores.find(
+            (p) => p.id === material.proveedor_id
+          );
+          return (
+            <SolicitudCotizacionForm
+              open={Boolean(cotizacionCaso)}
+              onClose={() => setCotizacionCaso(null)}
+              material={material}
+              proveedorNombre={
+                proveedorDelMaterial?.nombre ??
+                cotizacionCaso.proveedores?.nombre ??
+                cotizacionCaso.proveedor_nombre ??
+                null
+              }
+              proveedorEmail={proveedorDelMaterial?.contacto ?? null}
+              casoExistente={{ id: cotizacionCaso.id }}
+            />
+          );
+        })()}
     </div>
   );
 }

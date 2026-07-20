@@ -237,6 +237,65 @@ export async function solicitarCotizacion(
   return { ok: true };
 }
 
+// Envía una cotización para un caso YA EXISTENTE (a diferencia de
+// solicitarCotizacion, que siempre crea uno nuevo): se usa cuando el
+// usuario abre el formulario de correo desde el link del título de un
+// caso en /proveedores, en vez de desde el detalle del material. Solo
+// avanza el estado pendiente -> cotizando (no retrocede uno que ya esté
+// más adelante); el asunto/cuerpo editados quedan como título/descripción.
+export async function enviarCotizacionCasoExistente(
+  casoId: string,
+  formData: FormData
+): Promise<ActionResult> {
+  const titulo = String(formData.get("titulo") ?? "").trim();
+  const descripcion = String(formData.get("descripcion") ?? "").trim() || null;
+  if (!casoId) return { ok: false, error: "Caso inválido" };
+  if (!titulo) return { ok: false, error: "El asunto es obligatorio" };
+
+  if (DEMO) {
+    try {
+      store.enviarCotizacionCasoExistente(casoId, titulo, descripcion);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const { data: caso, error: errCaso } = await supabase
+      .from("casos_compra")
+      .select("estado, material_id")
+      .eq("id", casoId)
+      .single();
+    if (errCaso || !caso) return { ok: false, error: "Caso no encontrado" };
+
+    const nuevoEstado = caso.estado === "pendiente" ? "cotizando" : caso.estado;
+    const { error } = await supabase
+      .from("casos_compra")
+      .update({
+        titulo,
+        descripcion,
+        estado: nuevoEstado,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", casoId);
+    if (error) return { ok: false, error: mensajeSupabase(error) };
+
+    if (caso.material_id) {
+      await supabase
+        .from("notificaciones")
+        .update({
+          estado: "atendida",
+          caso_compra_id: casoId,
+          resuelta_at: new Date().toISOString(),
+        })
+        .eq("material_id", caso.material_id)
+        .eq("estado", "abierta");
+    }
+  }
+
+  revalidatePath("/proveedores");
+  return { ok: true };
+}
+
 export async function descartarNotificacion(
   id: string
 ): Promise<ActionResult> {

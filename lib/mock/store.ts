@@ -1093,6 +1093,24 @@ export const store = {
     c.updated_at = new Date().toISOString();
   },
 
+  // Envía cotización para un caso YA EXISTENTE (link del título en
+  // /proveedores): actualiza título/descripción y solo avanza
+  // pendiente -> cotizando, sin crear un caso nuevo ni retroceder uno que
+  // ya esté más adelante.
+  enviarCotizacionCasoExistente(
+    casoId: string,
+    titulo: string,
+    descripcion: string | null
+  ): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de compra no encontrado");
+    c.titulo = titulo;
+    c.descripcion = descripcion;
+    if (c.estado === "pendiente") c.estado = "cotizando";
+    c.updated_at = new Date().toISOString();
+    if (c.material_id) store.atenderNotificacionesDeMaterial(c.material_id, c.id);
+  },
+
   // Marca como atendidas las alertas abiertas de un material (al actuar
   // sobre él, p. ej. al solicitar cotización desde su detalle).
   atenderNotificacionesDeMaterial(material_id: string, caso_id?: string): void {
