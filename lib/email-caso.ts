@@ -71,6 +71,16 @@ export function resumirCuerpo(cuerpo: string, max = 280): string | null {
   return limpio.length > max ? `${limpio.slice(0, max)}…` : limpio;
 }
 
+/**
+ * Formatea un correo (enviado o recibido) completo, sin recortar, para
+ * guardarlo tal cual en el `detalle` de un evento del timeline — a
+ * diferencia de `resumirCuerpo` (que solo deja un resumen corto para la
+ * descripción del caso), aquí sí se necesita poder leer el correo entero.
+ */
+export function formatearCorreoEvento(asunto: string, cuerpo: string): string {
+  return `Asunto: ${asunto}\n\n${cuerpo.trim()}`;
+}
+
 type CasoReferenciaMatch = { id: string; referencia: string | null };
 
 /**

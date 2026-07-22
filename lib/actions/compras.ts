@@ -8,6 +8,7 @@ import { store } from "@/lib/mock/store";
 import { getCurrentProfile } from "@/lib/auth";
 import { registrarEventoCaso } from "@/lib/eventos-caso";
 import { resolverSolicitud } from "@/lib/solicitudes";
+import { formatearCorreoEvento } from "@/lib/email-caso";
 import { ESTADOS_CASO_COMPRA, type EstadoCasoCompra } from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -219,6 +220,10 @@ export async function solicitarCotizacion(
   const monto_estimado = Number(formData.get("monto_estimado") ?? 0) || 0;
   let referencia = String(formData.get("referencia") ?? "").trim();
   if (!referencia) referencia = `OC-${Date.now().toString().slice(-6)}`;
+  // Cuerpo completo del correo (sin recortar) para el evento del timeline —
+  // si no viene (llamada externa sin este campo), se cae al resumen corto.
+  const cuerpoCompleto =
+    String(formData.get("cuerpo_completo") ?? "").trim() || descripcion || "";
 
   if (!proveedor_id)
     return { ok: false, error: "El material no tiene proveedor asignado" };
@@ -227,6 +232,7 @@ export async function solicitarCotizacion(
   const origen = esBajo ? ("stock_bajo" as const) : ("manual" as const);
   const yo = await getCurrentProfile();
   const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+  const detalleCorreo = formatearCorreoEvento(titulo, cuerpoCompleto);
 
   if (DEMO) {
     try {
@@ -243,7 +249,7 @@ export async function solicitarCotizacion(
       if (material_id)
         store.atenderNotificacionesDeMaterial(material_id, caso.id);
       store.registrarEventoCaso(caso.id, "creado", null, actor);
-      store.registrarEventoCaso(caso.id, "correo_enviado", null, actor);
+      store.registrarEventoCaso(caso.id, "correo_enviado", detalleCorreo, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -265,7 +271,7 @@ export async function solicitarCotizacion(
       .single();
     if (error) return { ok: false, error: mensajeSupabase(error) };
     await registrarEventoCaso(supabase, data.id, "creado", null, actor);
-    await registrarEventoCaso(supabase, data.id, "correo_enviado", null, actor);
+    await registrarEventoCaso(supabase, data.id, "correo_enviado", detalleCorreo, actor);
     if (material_id) {
       await supabase
         .from("notificaciones")
@@ -304,13 +310,16 @@ export async function enviarCotizacionCasoExistente(
   // automática — no tiene caso pisarlo con 0 si esta vez no hay convenio).
   const montoRaw = formData.get("monto_estimado");
   const monto_estimado = montoRaw != null ? Number(montoRaw) : null;
+  const cuerpoCompleto =
+    String(formData.get("cuerpo_completo") ?? "").trim() || descripcion || "";
   const yo = await getCurrentProfile();
   const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+  const detalleCorreo = formatearCorreoEvento(titulo, cuerpoCompleto);
 
   if (DEMO) {
     try {
       store.enviarCotizacionCasoExistente(casoId, titulo, descripcion, monto_estimado);
-      store.registrarEventoCaso(casoId, "correo_enviado", null, actor);
+      store.registrarEventoCaso(casoId, "correo_enviado", detalleCorreo, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -335,6 +344,7 @@ export async function enviarCotizacionCasoExistente(
       })
       .eq("id", casoId);
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCaso(supabase, casoId, "correo_enviado", detalleCorreo, actor);
 
     if (caso.material_id) {
       await supabase

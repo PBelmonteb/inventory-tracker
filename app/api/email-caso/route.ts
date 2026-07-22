@@ -16,6 +16,7 @@ import { secretoValido } from "@/lib/webhook-auth";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import {
   extraerMonto,
+  formatearCorreoEvento,
   matchMaterial,
   matchProveedor,
   matchReferenciaEnAsunto,
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
       store.registrarEventoCaso(
         casoLigado.id,
         "correo_recibido",
-        resumirCuerpo(email.cuerpo),
+        formatearCorreoEvento(email.asunto, email.cuerpo),
         { id: null, nombre: null }
       );
       store.registrarEmailProcesado(email.mensajeId);
@@ -119,6 +120,13 @@ export async function POST(req: Request) {
       referencia: `OC-${Date.now().toString().slice(-6)}`,
       origen: "correo",
     });
+    store.registrarEventoCaso(caso.id, "creado", null, { id: null, nombre: null });
+    store.registrarEventoCaso(
+      caso.id,
+      "correo_recibido",
+      formatearCorreoEvento(email.asunto, email.cuerpo),
+      { id: null, nombre: null }
+    );
     store.registrarEmailProcesado(email.mensajeId);
 
     revalidatePath("/proveedores");
@@ -165,7 +173,7 @@ export async function POST(req: Request) {
       supabase,
       casoLigado.id,
       "correo_recibido",
-      resumirCuerpo(email.cuerpo),
+      formatearCorreoEvento(email.asunto, email.cuerpo),
       { id: null, nombre: null }
     );
     revalidatePath("/proveedores");
@@ -210,6 +218,14 @@ export async function POST(req: Request) {
       { ok: false, error: mensajeSupabase(error) },
       { status: 500 }
     );
+  await registrarEventoCaso(supabase, caso.id, "creado", null, { id: null, nombre: null });
+  await registrarEventoCaso(
+    supabase,
+    caso.id,
+    "correo_recibido",
+    formatearCorreoEvento(email.asunto, email.cuerpo),
+    { id: null, nombre: null }
+  );
 
   revalidatePath("/proveedores");
   return NextResponse.json({

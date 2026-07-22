@@ -48,6 +48,8 @@ import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
 import { evaluarRiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
+import { construirCorreoOrdenConvenio } from "@/lib/plantillas-correo";
+import { formatearCorreoEvento } from "@/lib/email-caso";
 import type { ResumenReposicionAutomatica } from "@/lib/casos-automaticos";
 
 interface DB {
@@ -1236,6 +1238,7 @@ export const store = {
       caso.nivel_riesgo = riesgo.nivelRiesgo;
       caso.dias_cobertura_restante = riesgo.diasCobertura;
       caso.lead_time_dias_usado = riesgo.leadTimeUsado;
+      store.registrarEventoCaso(caso.id, "creado", null, { id: null, nombre: null });
 
       // Opt-in por convenio: en DEMO no hay Resend real que llamar, así
       // que se simula el envío siempre con éxito (mismo criterio que
@@ -1248,6 +1251,21 @@ export const store = {
           caso.estado = "ordenado";
           caso.correo_enviado_at = new Date().toISOString();
           caso.descripcion = `${caso.descripcion} Orden confirmada y enviada automáticamente por convenio (simulado en modo demo).`;
+          const correo = construirCorreoOrdenConvenio({
+            material: { nombre: m.nombre, sku: m.sku, unidad: m.unidad },
+            proveedorNombre: proveedor.nombre,
+            cantidad,
+            precioUnitario,
+            condicionesPago: convenio.condiciones_pago,
+            diasEntregaPactado: convenio.dias_entrega_pactado,
+            referencia,
+          });
+          store.registrarEventoCaso(
+            caso.id,
+            "correo_enviado",
+            formatearCorreoEvento(correo.asunto, correo.cuerpo),
+            { id: null, nombre: null }
+          );
         }
       }
 

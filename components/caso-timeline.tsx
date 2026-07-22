@@ -134,8 +134,12 @@ export function CasoTimeline({
                       {e.tipo === "nota" ? "escribió una nota" : meta.label.toLowerCase()}
                     </span>
                   </p>
-                  {e.detalle && (
-                    <p className="text-xs text-muted">{e.detalle}</p>
+                  {e.detalle && (e.tipo === "correo_enviado" || e.tipo === "correo_recibido") ? (
+                    <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2/60 p-2 font-sans text-xs text-muted">
+                      {e.detalle}
+                    </pre>
+                  ) : (
+                    e.detalle && <p className="text-xs text-muted">{e.detalle}</p>
                   )}
                   <p className="text-xs text-faint">{formatDate(e.created_at)}</p>
                 </div>

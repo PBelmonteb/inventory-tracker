@@ -28,7 +28,11 @@ import { evaluarRiesgoStock, type RiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
 import { construirCorreoOrdenConvenio } from "@/lib/plantillas-correo";
 import { enviarCorreo } from "@/lib/email";
+import { registrarEventoCaso } from "@/lib/eventos-caso";
+import { formatearCorreoEvento } from "@/lib/email-caso";
 import type { Convenio } from "@/lib/types";
+
+const SISTEMA = { id: null, nombre: null };
 
 export interface ResumenReposicionAutomatica {
   materialesRevisados: number;
@@ -241,6 +245,7 @@ export async function generarCasosAutomaticosPorStockBajo(
 
     // No se aborta el resto del lote por un material: se sigue con los demás.
     if (error || !caso) continue;
+    await registrarEventoCaso(supabase, caso.id, "creado", null, SISTEMA);
 
     await resolverNotificacionesDelMaterial(
       supabase,
@@ -325,6 +330,13 @@ async function crearSolicitudComparativa(
       .single();
     if (error || !caso) continue;
     creados++;
+    await registrarEventoCaso(
+      supabase,
+      caso.id,
+      "creado",
+      `Cotización comparativa de la solicitud ${solicitud.codigo}.`,
+      SISTEMA
+    );
 
     if (convenio.auto_enviar && proveedorInfo) {
       await intentarEnvioAutomatico(supabase, {
@@ -439,6 +451,13 @@ async function intentarEnvioAutomatico(
         descripcion: `${descripcionBase} Orden confirmada y enviada automáticamente por convenio.`,
       })
       .eq("id", casoId);
+    await registrarEventoCaso(
+      supabase,
+      casoId,
+      "correo_enviado",
+      formatearCorreoEvento(correo.asunto, correo.cuerpo),
+      SISTEMA
+    );
   } else {
     await supabase
       .from("casos_compra")

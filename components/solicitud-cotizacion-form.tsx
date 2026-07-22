@@ -170,6 +170,9 @@ export function SolicitudCotizacionForm({
     fd.set("material_id", material.id);
     fd.set("titulo", asunto);
     fd.set("descripcion", cuerpo.slice(0, 280));
+    // Cuerpo completo (sin recortar) para el evento "correo_enviado" del
+    // timeline — descripcion sigue recortada, es el resumen del caso.
+    fd.set("cuerpo_completo", cuerpo);
     fd.set("es_bajo", bajo ? "1" : "0");
     // Mismo código que ya viaja en el asunto del correo — no dejar que el
     // servidor invente uno distinto (rompería el enlace de respuestas).
