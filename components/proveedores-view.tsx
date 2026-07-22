@@ -15,6 +15,7 @@ import { RecibirCompraForm } from "@/components/recibir-compra-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { SolicitudCotizacionForm } from "@/components/solicitud-cotizacion-form";
+import { CasoDetalleModal } from "@/components/caso-detalle-modal";
 import {
   asignarResponsableCasoCompra,
   cambiarEstadoCasoCompra,
@@ -35,6 +36,7 @@ import type {
 } from "@/lib/types";
 import {
   BellRing,
+  Eye,
   Mail,
   PencilLine,
   Plus,
@@ -105,6 +107,9 @@ export function ProveedoresView({
   const [revisando, setRevisando] = useState(false);
   const [cotizacionCaso, setCotizacionCaso] =
     useState<CasoCompraConRelaciones | null>(null);
+  const [detalleCaso, setDetalleCaso] = useState<CasoCompraConRelaciones | null>(
+    null
+  );
 
   // Esta vista solo maneja alertas de stock; las de asignación (personales)
   // viven en la campana global (NotificacionesProvider/Bell), no aquí.
@@ -459,6 +464,14 @@ export function ProveedoresView({
                         {c.referencia}
                       </span>
                     )}
+                    {c.solicitudes_compra && (
+                      <span
+                        title="Cotización comparativa — hay más de un proveedor para esta necesidad"
+                        className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent"
+                      >
+                        {c.solicitudes_compra.codigo}
+                      </span>
+                    )}
                     {c.origen !== "manual" && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
                         <OrigenIcon className="h-3 w-3" />
@@ -511,6 +524,15 @@ export function ProveedoresView({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDetalleCaso(c)}
+                    title="Ver detalle y timeline"
+                    aria-label="Ver detalle y timeline"
+                    className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </button>
                   <Badge tone={ESTADO_COMPRA_META[c.estado].tone}>
                     {ESTADO_COMPRA_META[c.estado].label}
                   </Badge>
@@ -555,6 +577,7 @@ export function ProveedoresView({
         open={simuladorAbierto}
         onClose={() => setSimuladorAbierto(false)}
         proveedores={proveedores}
+        casos={casos}
       />
       <RecibirCompraForm
         caso={recibiendo}
@@ -579,10 +602,15 @@ export function ProveedoresView({
                 null
               }
               proveedorEmail={proveedorDelMaterial?.contacto ?? null}
-              casoExistente={{ id: cotizacionCaso.id }}
+              casoExistente={{ id: cotizacionCaso.id, referencia: cotizacionCaso.referencia }}
             />
           );
         })()}
+      <CasoDetalleModal
+        open={Boolean(detalleCaso)}
+        onClose={() => setDetalleCaso(null)}
+        caso={detalleCaso}
+      />
     </div>
   );
 }

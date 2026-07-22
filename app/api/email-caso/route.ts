@@ -18,9 +18,15 @@ import {
   extraerMonto,
   matchMaterial,
   matchProveedor,
+  matchReferenciaEnAsunto,
   resumirCuerpo,
   type EmailEntrante,
 } from "@/lib/email-caso";
+import { registrarEventoCaso } from "@/lib/eventos-caso";
+
+// Casos que todavía admiten respuestas ligadas a su hilo (uno ya
+// recibido/cancelado no tiene sentido reabrirlo por un correo tardío).
+const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "ordenado"];
 
 export async function POST(req: Request) {
   // ---- Autenticación del webhook ----
@@ -68,6 +74,29 @@ export async function POST(req: Request) {
     // Idempotencia: Cloudflare puede reintentar el mismo correo.
     if (store.emailYaProcesado(email.mensajeId))
       return NextResponse.json({ ok: true, duplicado: true });
+
+    // Antes de crear un caso nuevo: ¿es una respuesta a uno que ya existe?
+    // El código viaja en el asunto (lib/plantillas-correo.ts) — si aparece,
+    // se liga como evento en vez de duplicar el caso.
+    const casosAbiertos = store
+      .getCasosCompra()
+      .filter((c) => CASO_COMPRA_ABIERTO.includes(c.estado));
+    const casoLigado = matchReferenciaEnAsunto(email.asunto, casosAbiertos);
+    if (casoLigado) {
+      store.registrarEventoCaso(
+        casoLigado.id,
+        "correo_recibido",
+        resumirCuerpo(email.cuerpo),
+        { id: null, nombre: null }
+      );
+      store.registrarEmailProcesado(email.mensajeId);
+      revalidatePath("/proveedores");
+      return NextResponse.json({
+        ok: true,
+        vinculado: true,
+        caso: { id: casoLigado.id, referencia: casoLigado.referencia },
+      });
+    }
 
     const proveedor = matchProveedor(email.de, store.getProveedores());
     if (!proveedor)
@@ -124,6 +153,27 @@ export async function POST(req: Request) {
       { ok: false, error: errDup.message },
       { status: 500 }
     );
+  }
+
+  const { data: casosAbiertos } = await supabase
+    .from("casos_compra")
+    .select("id, referencia")
+    .in("estado", CASO_COMPRA_ABIERTO);
+  const casoLigado = matchReferenciaEnAsunto(email.asunto, casosAbiertos ?? []);
+  if (casoLigado) {
+    await registrarEventoCaso(
+      supabase,
+      casoLigado.id,
+      "correo_recibido",
+      resumirCuerpo(email.cuerpo),
+      { id: null, nombre: null }
+    );
+    revalidatePath("/proveedores");
+    return NextResponse.json({
+      ok: true,
+      vinculado: true,
+      caso: { id: casoLigado.id, referencia: casoLigado.referencia },
+    });
   }
 
   const [{ data: proveedores }, { data: materiales }] = await Promise.all([

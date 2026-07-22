@@ -23,13 +23,17 @@ export function lineaCantidadCotizacion(cantidad: number, unidad: string): strin
 // Solicitud de cotización: no se sabe el precio todavía, se le pide al
 // proveedor. Usada por el formulario manual (components/solicitud-
 // cotizacion-form.tsx) — extraída tal cual de ahí, mismo texto exacto.
+// `referencia` viaja entre corchetes en el asunto para que una respuesta
+// se ligue sola al caso vía matchReferenciaEnAsunto (lib/email-caso.ts),
+// en vez de crear un caso nuevo.
 export function construirCorreoCotizacion(params: {
   material: MaterialCorreo;
   proveedorNombre: string | null;
   cantidad: number;
+  referencia: string;
 }): CorreoProveedor {
-  const { material, proveedorNombre, cantidad } = params;
-  const asunto = `Solicitud de cotización — ${material.nombre}${
+  const { material, proveedorNombre, cantidad, referencia } = params;
+  const asunto = `Solicitud de cotización [${referencia}] — ${material.nombre}${
     material.sku ? ` (${material.sku})` : ""
   }`;
   const cuerpo = [
@@ -72,7 +76,7 @@ export function construirCorreoOrdenConvenio(params: {
   } = params;
   const total = precioUnitario * cantidad;
 
-  const asunto = `Orden de compra ${referencia} — ${material.nombre}${
+  const asunto = `Orden de compra [${referencia}] — ${material.nombre}${
     material.sku ? ` (${material.sku})` : ""
   }`;
   const lineas = [

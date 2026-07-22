@@ -12,9 +12,13 @@ describe("construirCorreoCotizacion", () => {
       material: MATERIAL,
       proveedorNombre: "Aluminios del Norte",
       cantidad: 150,
+      referencia: "OC-123456",
     });
     expect(asunto).toContain("Solicitud de cotización");
     expect(asunto).toContain(MATERIAL.nombre);
+    // El código viaja en el asunto para que las respuestas se liguen solas
+    // (matchReferenciaEnAsunto, lib/email-caso.ts).
+    expect(asunto).toContain("[OC-123456]");
     expect(cuerpo).toContain("Aluminios del Norte");
     expect(cuerpo).toContain("PERF-001");
     expect(cuerpo).toMatch(/150/);
@@ -28,6 +32,7 @@ describe("construirCorreoCotizacion", () => {
       material: MATERIAL,
       proveedorNombre: null,
       cantidad: 10,
+      referencia: "OC-000001",
     });
     expect(cuerpo).toMatch(/Estimados proveedor/);
   });
@@ -44,7 +49,7 @@ describe("construirCorreoOrdenConvenio", () => {
       diasEntregaPactado: 7,
       referencia: "OC-123456",
     });
-    expect(asunto).toContain("Orden de compra OC-123456");
+    expect(asunto).toContain("Orden de compra [OC-123456]");
     expect(cuerpo).toMatch(/confirmamos la siguiente orden/i);
     expect(cuerpo).toContain("$80.00");
     expect(cuerpo).toContain("$8,000.00"); // total = 80 * 100

@@ -4,6 +4,12 @@
 // sugerido.ts, lib/eoq.ts y lib/riesgo-stock.ts — este archivo solo hace la
 // orquestación de datos (Supabase) alrededor de esas funciones puras.
 //
+// Si un material tiene convenios vigentes con VARIOS proveedores, no se
+// crea un solo caso — se crea una solicitud_compra (código propio) con una
+// cotización por cada convenio, para que el responsable pueda comparar y
+// elegir (lib/solicitudes.ts). Con 0 o 1 convenio, el comportamiento es el
+// de siempre: un caso suelto, sin solicitud.
+//
 // Dos caminos la llaman:
 //   - app/api/generar-casos-automaticos/route.ts, con el cliente de
 //     service_role (el disparador real es un pg_cron -> pg_net contra ese
@@ -18,7 +24,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
-import { evaluarRiesgoStock } from "@/lib/riesgo-stock";
+import { evaluarRiesgoStock, type RiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
 import { construirCorreoOrdenConvenio } from "@/lib/plantillas-correo";
 import { enviarCorreo } from "@/lib/email";
@@ -140,14 +146,15 @@ export async function generarCasosAutomaticosPorStockBajo(
     recibidasPorMaterial.set(c.material_id, lista);
   }
 
-  // Convenio vigente por par proveedor+material (a lo más uno por par, ver
-  // el índice único de la migración 0018) — le gana al WAC/declarado del
-  // proveedor cuando existe.
-  const convenioPorPar = new Map<string, Convenio>();
+  // Todos los convenios vigentes de cada material (de cualquier proveedor,
+  // no solo el asignado por defecto al material) — de aquí sale el
+  // fan-out a varias cotizaciones cuando hay más de uno.
+  const conveniosPorMaterial = new Map<string, Convenio[]>();
   for (const c of (conveniosRows ?? []) as Convenio[]) {
-    if (esConvenioVigente(c)) {
-      convenioPorPar.set(`${c.proveedor_id}:${c.material_id}`, c);
-    }
+    if (!esConvenioVigente(c)) continue;
+    const lista = conveniosPorMaterial.get(c.material_id) ?? [];
+    lista.push(c);
+    conveniosPorMaterial.set(c.material_id, lista);
   }
 
   let casosCreados = 0;
@@ -162,16 +169,19 @@ export async function generarCasosAutomaticosPorStockBajo(
       material.costo_unitario > 0
         ? calcularEOQ({ salidas, costoUnitario: material.costo_unitario })
         : null;
-    const convenio = convenioPorPar.get(
-      `${material.proveedor_id}:${material.id}`
+
+    const conveniosDelMaterial = conveniosPorMaterial.get(material.id) ?? [];
+    // Para decidir SI y QUÉ TAN URGENTE reponer, se usa el convenio del
+    // proveedor asignado por defecto al material (si tiene uno) — la
+    // decisión de "cuándo" no depende de cuántos proveedores alternativos
+    // existan, solo de a quién surte normalmente este material.
+    const convenioDefault = conveniosDelMaterial.find(
+      (c) => c.proveedor_id === material.proveedor_id
     );
-    // El tiempo de entrega pactado en el convenio es más preciso que el
-    // declarado a nivel proveedor — pero el inferido del historial real
-    // (dentro de evaluarRiesgoStock) le sigue ganando a ambos.
-    const proveedorInfo = proveedorInfoPorId.get(material.proveedor_id);
+    const proveedorInfoDefault = proveedorInfoPorId.get(material.proveedor_id);
     const proveedorDiasEntrega =
-      convenio?.dias_entrega_pactado ??
-      proveedorInfo?.dias_entrega_declarado ??
+      convenioDefault?.dias_entrega_pactado ??
+      proveedorInfoDefault?.dias_entrega_declarado ??
       null;
 
     const riesgo = evaluarRiesgoStock({
@@ -183,8 +193,25 @@ export async function generarCasosAutomaticosPorStockBajo(
     });
     if (!riesgo.debeCrearCaso) continue;
 
-    // La cantidad mínima del convenio es un piso contractual: nunca se pide
-    // menos, aunque el cálculo sugiera menos.
+    if (conveniosDelMaterial.length > 1) {
+      const creados = await crearSolicitudComparativa(
+        supabase,
+        material,
+        conveniosDelMaterial,
+        riesgo,
+        proveedorInfoPorId
+      );
+      casosCreados += creados;
+      continue;
+    }
+
+    // 0 o 1 convenio: un caso suelto, como siempre. Si hay exactamente uno
+    // (aunque no sea el del proveedor asignado por defecto al material),
+    // se usa su precio/condiciones — sigue siendo la única opción pactada.
+    const convenio = conveniosDelMaterial[0];
+    const proveedorId = convenio?.proveedor_id ?? material.proveedor_id;
+    const proveedorInfo = proveedorInfoPorId.get(proveedorId);
+
     const cantidad = Math.max(riesgo.cantidadSugerida, convenio?.cantidad_minima ?? 0);
     const precioUnitario = convenio?.precio_pactado ?? material.costo_unitario;
     const referencia = `OC-${Date.now().toString().slice(-6)}-${casosCreados}`;
@@ -197,7 +224,7 @@ export async function generarCasosAutomaticosPorStockBajo(
     const { data: caso, error } = await supabase
       .from("casos_compra")
       .insert({
-        proveedor_id: material.proveedor_id,
+        proveedor_id: proveedorId,
         material_id: material.id,
         titulo: `Reposición automática: ${material.nombre}`,
         descripcion: descripcionBase,
@@ -215,75 +242,209 @@ export async function generarCasosAutomaticosPorStockBajo(
     // No se aborta el resto del lote por un material: se sigue con los demás.
     if (error || !caso) continue;
 
-    await supabase
-      .from("notificaciones")
-      .update({
-        estado: "atendida",
-        caso_compra_id: caso.id,
-        resuelta_at: new Date().toISOString(),
-      })
-      .eq("material_id", material.id)
-      .eq("estado", "abierta");
+    await resolverNotificacionesDelMaterial(
+      supabase,
+      material.id,
+      caso.id,
+      `Se generó automáticamente el caso ${referencia} para reponer ${material.nombre} (riesgo ${riesgo.nivelRiesgo}). Revisa y asigna un responsable.`,
+      material.proveedor_id,
+      riesgo.nivelRiesgo
+    );
 
-    await supabase.from("notificaciones").insert({
-      material_id: material.id,
-      proveedor_id: material.proveedor_id,
-      tipo: "stock",
-      nivel: riesgo.nivelRiesgo === "medio" ? "aviso" : "bajo",
-      mensaje: `Se generó automáticamente el caso ${referencia} para reponer ${material.nombre} (riesgo ${riesgo.nivelRiesgo}). Revisa y asigna un responsable.`,
-      caso_compra_id: caso.id,
-    });
-
-    // Opt-in por convenio: si el precio/cantidad/condiciones ya están
-    // pactados, no hace falta que un humano redacte y apruebe el correo —
-    // se manda solo y el caso pasa directo a "ordenado". Nunca se finge un
-    // envío que no ocurrió: sin correo del proveedor, o si el servicio no
-    // está configurado/falla, el caso se queda en "pendiente" con una nota.
-    if (convenio?.auto_enviar) {
-      if (!proveedorInfo?.contacto) {
-        await supabase
-          .from("casos_compra")
-          .update({
-            descripcion: `${descripcionBase} Envío automático configurado pero el proveedor no tiene correo registrado.`,
-          })
-          .eq("id", caso.id);
-      } else {
-        const correo = construirCorreoOrdenConvenio({
-          material: { nombre: material.nombre, sku: material.sku, unidad: material.unidad },
-          proveedorNombre: proveedorInfo.nombre,
-          cantidad,
-          precioUnitario,
-          condicionesPago: convenio.condiciones_pago,
-          diasEntregaPactado: convenio.dias_entrega_pactado,
-          referencia,
-        });
-        const envio = await enviarCorreo({
-          to: proveedorInfo.contacto,
-          subject: correo.asunto,
-          body: correo.cuerpo,
-        });
-        if (envio.ok) {
-          await supabase
-            .from("casos_compra")
-            .update({
-              estado: "ordenado",
-              correo_enviado_at: new Date().toISOString(),
-              descripcion: `${descripcionBase} Orden confirmada y enviada automáticamente por convenio.`,
-            })
-            .eq("id", caso.id);
-        } else {
-          await supabase
-            .from("casos_compra")
-            .update({
-              descripcion: `${descripcionBase} Envío automático configurado pero falló: ${envio.error} Revisar manualmente.`,
-            })
-            .eq("id", caso.id);
-        }
-      }
+    if (convenio?.auto_enviar && proveedorInfo) {
+      await intentarEnvioAutomatico(supabase, {
+        casoId: caso.id,
+        material,
+        convenio,
+        proveedorInfo,
+        cantidad,
+        precioUnitario,
+        referencia,
+        descripcionBase,
+      });
     }
 
     casosCreados++;
   }
 
   return { materialesRevisados: materiales.length, casosCreados };
+}
+
+// Fan-out: un material con convenios vigentes de varios proveedores → una
+// solicitud_compra (con su propio código) + una cotización por convenio,
+// para que el responsable pueda comparar y elegir (lib/solicitudes.ts).
+async function crearSolicitudComparativa(
+  supabase: SupabaseClient,
+  material: MaterialCandidato,
+  convenios: Convenio[],
+  riesgo: RiesgoStock,
+  proveedorInfoPorId: Map<string, ProveedorInfo>
+): Promise<number> {
+  const codigo = `SOL-${Date.now().toString().slice(-6)}`;
+  const { data: solicitud, error: errSol } = await supabase
+    .from("solicitudes_compra")
+    .insert({
+      codigo,
+      material_id: material.id,
+      material_nombre: material.nombre,
+      titulo: `Reposición automática: ${material.nombre}`,
+    })
+    .select("id, codigo")
+    .single();
+  // Si no se pudo armar el grupo, no se crea nada para este material — se
+  // reintenta en la próxima corrida (no queda a medias con solo algunas
+  // cotizaciones sueltas).
+  if (errSol || !solicitud) return 0;
+
+  let creados = 0;
+  for (const convenio of convenios) {
+    const proveedorInfo = proveedorInfoPorId.get(convenio.proveedor_id);
+    const cantidad = Math.max(riesgo.cantidadSugerida, convenio.cantidad_minima ?? 0);
+    const precioUnitario = convenio.precio_pactado;
+    const referencia = `OC-${Date.now().toString().slice(-6)}-${creados}`;
+    const montoEstimado = precioUnitario * cantidad;
+    const descripcionBase = `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}. Precio según convenio vigente: $${precioUnitario.toFixed(2)}/unidad. Cotización comparativa de la solicitud ${solicitud.codigo}.`;
+
+    const { data: caso, error } = await supabase
+      .from("casos_compra")
+      .insert({
+        proveedor_id: convenio.proveedor_id,
+        material_id: material.id,
+        titulo: `Reposición automática: ${material.nombre}`,
+        descripcion: descripcionBase,
+        monto_estimado: montoEstimado,
+        referencia,
+        estado: "pendiente",
+        origen: "stock_bajo",
+        nivel_riesgo: riesgo.nivelRiesgo,
+        dias_cobertura_restante: riesgo.diasCobertura,
+        lead_time_dias_usado: riesgo.leadTimeUsado,
+        solicitud_id: solicitud.id,
+      })
+      .select("id")
+      .single();
+    if (error || !caso) continue;
+    creados++;
+
+    if (convenio.auto_enviar && proveedorInfo) {
+      await intentarEnvioAutomatico(supabase, {
+        casoId: caso.id,
+        material,
+        convenio,
+        proveedorInfo,
+        cantidad,
+        precioUnitario,
+        referencia,
+        descripcionBase,
+      });
+    }
+  }
+
+  if (creados > 0) {
+    await resolverNotificacionesDelMaterial(
+      supabase,
+      material.id,
+      null,
+      `Se generó automáticamente la solicitud ${solicitud.codigo} para reponer ${material.nombre} — se pidió cotización a ${creados} proveedores con convenio. Revisa y elige la mejor opción.`,
+      material.proveedor_id,
+      riesgo.nivelRiesgo
+    );
+  }
+  return creados;
+}
+
+// Marca como atendidas las alertas abiertas del material y deja una nueva
+// notificación explicando qué se generó — mismo mecanismo que ya usa el
+// resto de la app (campana/toasts), sin tocar ese componente.
+async function resolverNotificacionesDelMaterial(
+  supabase: SupabaseClient,
+  materialId: string,
+  casoId: string | null,
+  mensaje: string,
+  proveedorId: string,
+  nivelRiesgo: "medio" | "alto" | "critico"
+): Promise<void> {
+  await supabase
+    .from("notificaciones")
+    .update({
+      estado: "atendida",
+      ...(casoId ? { caso_compra_id: casoId } : {}),
+      resuelta_at: new Date().toISOString(),
+    })
+    .eq("material_id", materialId)
+    .eq("estado", "abierta");
+
+  await supabase.from("notificaciones").insert({
+    material_id: materialId,
+    proveedor_id: proveedorId,
+    tipo: "stock",
+    nivel: nivelRiesgo === "medio" ? "aviso" : "bajo",
+    mensaje,
+    caso_compra_id: casoId,
+  });
+}
+
+// Opt-in por convenio: si el precio/cantidad/condiciones ya están
+// pactados, no hace falta que un humano redacte y apruebe el correo — se
+// manda solo y el caso pasa directo a "ordenado". Nunca se finge un envío
+// que no ocurrió: si el servicio no está configurado/falla, el caso se
+// queda en "pendiente" con una nota.
+async function intentarEnvioAutomatico(
+  supabase: SupabaseClient,
+  params: {
+    casoId: string;
+    material: MaterialCandidato;
+    convenio: Convenio;
+    proveedorInfo: ProveedorInfo;
+    cantidad: number;
+    precioUnitario: number;
+    referencia: string;
+    descripcionBase: string;
+  }
+): Promise<void> {
+  const { casoId, material, convenio, proveedorInfo, cantidad, precioUnitario, referencia, descripcionBase } =
+    params;
+
+  if (!proveedorInfo.contacto) {
+    await supabase
+      .from("casos_compra")
+      .update({
+        descripcion: `${descripcionBase} Envío automático configurado pero el proveedor no tiene correo registrado.`,
+      })
+      .eq("id", casoId);
+    return;
+  }
+
+  const correo = construirCorreoOrdenConvenio({
+    material: { nombre: material.nombre, sku: material.sku, unidad: material.unidad },
+    proveedorNombre: proveedorInfo.nombre,
+    cantidad,
+    precioUnitario,
+    condicionesPago: convenio.condiciones_pago,
+    diasEntregaPactado: convenio.dias_entrega_pactado,
+    referencia,
+  });
+  const envio = await enviarCorreo({
+    to: proveedorInfo.contacto,
+    subject: correo.asunto,
+    body: correo.cuerpo,
+  });
+
+  if (envio.ok) {
+    await supabase
+      .from("casos_compra")
+      .update({
+        estado: "ordenado",
+        correo_enviado_at: new Date().toISOString(),
+        descripcion: `${descripcionBase} Orden confirmada y enviada automáticamente por convenio.`,
+      })
+      .eq("id", casoId);
+  } else {
+    await supabase
+      .from("casos_compra")
+      .update({
+        descripcion: `${descripcionBase} Envío automático configurado pero falló: ${envio.error} Revisar manualmente.`,
+      })
+      .eq("id", casoId);
+  }
 }

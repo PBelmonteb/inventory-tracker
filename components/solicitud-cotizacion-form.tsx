@@ -39,8 +39,9 @@ export function SolicitudCotizacionForm({
   proveedorEmail: string | null;
   // Si se abre desde el link del título de un caso ya creado (en vez de
   // desde el detalle del material): en lugar de registrar un caso nuevo,
-  // actualiza este mismo (evita duplicarlo).
-  casoExistente?: { id: string };
+  // actualiza este mismo (evita duplicarlo). Trae su referencia para
+  // reusar el mismo código de correo (no generar uno nuevo a medio hilo).
+  casoExistente?: { id: string; referencia?: string | null };
 }) {
   const router = useRouter();
   const bajo = material.stock_actual <= material.stock_minimo;
@@ -53,10 +54,22 @@ export function SolicitudCotizacionForm({
   const lineaCantidad = (cantidad: number) =>
     lineaCantidadCotizacion(cantidad, material.unidad);
 
+  // El código viaja en el asunto del correo desde el inicio (no se genera
+  // recién al guardar) para que el asunto mostrado y el que se guarda sean
+  // el mismo — así una respuesta se liga sola al caso vía
+  // matchReferenciaEnAsunto (lib/email-caso.ts). Si ya existe un caso
+  // (casoExistente), se reusa su código en vez de inventar uno nuevo.
+  function generarReferencia(): string {
+    return casoExistente?.referencia ?? `OC-${Date.now().toString().slice(-6)}`;
+  }
+
+  const [referencia, setReferencia] = useState(generarReferencia);
+
   const { asunto: asuntoInicial, cuerpo: cuerpoInicial } = construirCorreoCotizacion({
     material,
     proveedorNombre,
     cantidad: cantidadSugerida,
+    referencia,
   });
 
   const [asunto, setAsunto] = useState(asuntoInicial);
@@ -73,8 +86,16 @@ export function SolicitudCotizacionForm({
 
   useEffect(() => {
     if (open) {
-      setAsunto(asuntoInicial);
-      setCuerpo(cuerpoInicial);
+      const ref = generarReferencia();
+      const correo = construirCorreoCotizacion({
+        material,
+        proveedorNombre,
+        cantidad: cantidadSugerida,
+        referencia: ref,
+      });
+      setReferencia(ref);
+      setAsunto(correo.asunto);
+      setCuerpo(correo.cuerpo);
       setCantidadActual(cantidadSugerida);
       setError(null);
       setEnviado(false);
@@ -150,6 +171,9 @@ export function SolicitudCotizacionForm({
     fd.set("titulo", asunto);
     fd.set("descripcion", cuerpo.slice(0, 280));
     fd.set("es_bajo", bajo ? "1" : "0");
+    // Mismo código que ya viaja en el asunto del correo — no dejar que el
+    // servidor invente uno distinto (rompería el enlace de respuestas).
+    fd.set("referencia", referencia);
     // Sin convenio no hay precio conocido para estimar un monto (igual que
     // antes: 0, editable después desde el caso una vez que llegue la cotización).
     if (convenio)

@@ -9,6 +9,7 @@ import type {
   BomItemConMaterial,
   CasoCompra,
   CasoCompraConRelaciones,
+  CasoCompraEvento,
   CasoVenta,
   CasoVentaConRelaciones,
   CasoVentaItem,
@@ -32,7 +33,11 @@ import type {
   ProducibleConReceta,
   SalidaPendiente,
   SalidaPendienteConRelaciones,
+  SolicitudCompra,
+  SolicitudCompraConRelaciones,
+  UsuarioActor,
   StockPorUbicacion,
+  TipoEventoCaso,
   TipoMovimiento,
   Ubicacion,
 } from "@/lib/types";
@@ -73,6 +78,10 @@ interface DB {
   bom_items: BomItem[];
   // Precio pactado + condiciones por par proveedor+material.
   convenios: Convenio[];
+  // Agrupa varias cotizaciones (una por proveedor) de la misma necesidad.
+  solicitudes_compra: SolicitudCompra[];
+  // Timeline por caso (estilo Salesforce).
+  casos_compra_eventos: CasoCompraEvento[];
 }
 
 const g = globalThis as unknown as { __inventarioDemoDB?: DB };
@@ -177,6 +186,12 @@ if (!g.__inventarioDemoDB) {
   }
   // Convenios con proveedores (feature posterior).
   if (!viejo.convenios) viejo.convenios = [];
+  // Solicitudes de compra + timeline (feature posterior).
+  if (!viejo.solicitudes_compra) viejo.solicitudes_compra = [];
+  if (!viejo.casos_compra_eventos) viejo.casos_compra_eventos = [];
+  for (const c of viejo.casos_compra) {
+    if (c.solicitud_id === undefined) c.solicitud_id = null;
+  }
 }
 const db: DB = g.__inventarioDemoDB;
 
@@ -995,10 +1010,14 @@ export const store = {
       .map((c) => {
         const p = db.proveedores.find((x) => x.id === c.proveedor_id);
         const m = db.materiales.find((x) => x.id === c.material_id);
+        const s = c.solicitud_id
+          ? db.solicitudes_compra.find((x) => x.id === c.solicitud_id)
+          : undefined;
         return {
           ...c,
           proveedores: p ? { id: p.id, nombre: p.nombre } : null,
           materiales: m ? { id: m.id, nombre: m.nombre, sku: m.sku } : null,
+          solicitudes_compra: s ? { codigo: s.codigo } : null,
         };
       });
   },
@@ -1014,6 +1033,7 @@ export const store = {
       origen?: OrigenCasoCompra;
       estado?: EstadoCasoCompra;
       responsable_id?: string | null;
+      solicitud_id?: string | null;
     },
     notificacion_id?: string
   ): CasoCompra {
@@ -1035,6 +1055,7 @@ export const store = {
       dias_cobertura_restante: null,
       lead_time_dias_usado: null,
       correo_enviado_at: null,
+      solicitud_id: data.solicitud_id ?? null,
       created_at: now,
       updated_at: now,
     };
@@ -1053,11 +1074,17 @@ export const store = {
     return caso;
   },
 
-  cambiarEstadoCasoCompra(id: string, estado: EstadoCasoCompra): void {
+  cambiarEstadoCasoCompra(
+    id: string,
+    estado: EstadoCasoCompra,
+    actor: { id: string | null; nombre: string | null } = { id: null, nombre: null }
+  ): void {
     const c = db.casos_compra.find((x) => x.id === id);
     if (!c) throw new Error("Caso de compra no encontrado");
+    const anterior = c.estado;
     c.estado = estado;
     c.updated_at = new Date().toISOString();
+    store.registrarEventoCaso(c.id, "estado_cambiado", `${anterior} → ${estado}`, actor);
   },
 
   // Asigna (o quita, si usuarioId es null) el responsable de un caso de
@@ -1090,7 +1117,8 @@ export const store = {
     id: string,
     cantidad: number,
     costo: number,
-    ubicacion_id?: string | null
+    ubicacion_id?: string | null,
+    actor: { id: string | null; nombre: string | null } = { id: null, nombre: null }
   ): void {
     const c = db.casos_compra.find((x) => x.id === id);
     if (!c) throw new Error("Caso de compra no encontrado");
@@ -1108,6 +1136,8 @@ export const store = {
     c.estado = "recibido";
     c.movimiento_id = mov.id;
     c.updated_at = new Date().toISOString();
+    store.registrarEventoCaso(c.id, "estado_cambiado", "recibido", actor);
+    if (c.solicitud_id) store.resolverSolicitud(c.solicitud_id, c.id);
   },
 
   // Envía cotización para un caso YA EXISTENTE (link del título en
@@ -1354,6 +1384,208 @@ export const store = {
     if (!c) throw new Error("Convenio no encontrado");
     c.activo = false;
     c.updated_at = new Date().toISOString();
+  },
+
+  /* ---------------- Timeline de casos (estilo Salesforce) ---------------- */
+
+  // Un solo punto de inserción reusado desde cualquier acción que toque
+  // un caso — mismo rol que lib/eventos-caso.ts en el camino Supabase.
+  registrarEventoCaso(
+    casoId: string,
+    tipo: TipoEventoCaso,
+    detalle: string | null = null,
+    usuario: { id: string | null; nombre: string | null } = { id: null, nombre: null }
+  ): void {
+    db.casos_compra_eventos.push({
+      id: uid(),
+      caso_compra_id: casoId,
+      tipo,
+      detalle,
+      usuario_id: usuario.id,
+      usuario_nombre: usuario.nombre,
+      created_at: new Date().toISOString(),
+    });
+  },
+
+  getEventosCaso(casoId: string): CasoCompraEvento[] {
+    return db.casos_compra_eventos
+      .filter((e) => e.caso_compra_id === casoId)
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  },
+
+  /* ---------------- Solicitudes de compra (comparar proveedores) ---------------- */
+
+  getSolicitudConCasos(solicitudId: string): SolicitudCompraConRelaciones | null {
+    const s = db.solicitudes_compra.find((x) => x.id === solicitudId);
+    if (!s) return null;
+    const casos = db.casos_compra
+      .filter((c) => c.solicitud_id === solicitudId)
+      .map((c) => {
+        const p = db.proveedores.find((x) => x.id === c.proveedor_id);
+        const m = db.materiales.find((x) => x.id === c.material_id);
+        return {
+          ...c,
+          proveedores: p ? { id: p.id, nombre: p.nombre } : null,
+          materiales: m ? { id: m.id, nombre: m.nombre, sku: m.sku } : null,
+          solicitudes_compra: { codigo: s.codigo },
+        };
+      });
+    return { ...s, casos };
+  },
+
+  // Si viene un solo proveedor, se comporta exactamente igual que hoy (un
+  // caso suelto, sin solicitud). Con más de uno, agrupa una cotización por
+  // proveedor bajo una solicitud nueva con su propio código.
+  crearSolicitudCompra(
+    datos: {
+      proveedor_ids: string[];
+      material_id: string | null;
+      titulo: string;
+      descripcion: string | null;
+      responsable_id?: string | null;
+      notificacion_id?: string | null;
+    },
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): { solicitud: SolicitudCompra | null; casos: CasoCompra[] } {
+    if (datos.proveedor_ids.length === 0)
+      throw new Error("Selecciona al menos un proveedor");
+
+    if (datos.proveedor_ids.length === 1) {
+      const caso = store.crearCasoCompra(
+        {
+          proveedor_id: datos.proveedor_ids[0],
+          material_id: datos.material_id,
+          titulo: datos.titulo,
+          descripcion: datos.descripcion,
+          monto_estimado: 0,
+          referencia: `OC-${Date.now().toString().slice(-6)}`,
+          responsable_id: datos.responsable_id,
+          origen: datos.notificacion_id ? "stock_bajo" : "manual",
+        },
+        datos.notificacion_id ?? undefined
+      );
+      store.registrarEventoCaso(caso.id, "creado", null, actor);
+      if (datos.responsable_id)
+        store.asignarResponsableCasoCompra(caso.id, datos.responsable_id, actor.nombre);
+      return { solicitud: null, casos: [caso] };
+    }
+
+    const now = new Date().toISOString();
+    const material = datos.material_id
+      ? db.materiales.find((x) => x.id === datos.material_id)
+      : undefined;
+    const responsable = datos.responsable_id
+      ? db.profiles.find((p) => p.id === datos.responsable_id)
+      : undefined;
+
+    const solicitud: SolicitudCompra = {
+      id: uid(),
+      codigo: `SOL-${Date.now().toString().slice(-6)}`,
+      material_id: datos.material_id,
+      material_nombre: material?.nombre ?? null,
+      titulo: datos.titulo,
+      estado: "abierta",
+      responsable_id: datos.responsable_id ?? null,
+      responsable_nombre: responsable?.nombre ?? null,
+      cotizacion_ganadora_id: null,
+      created_at: now,
+      updated_at: now,
+    };
+    db.solicitudes_compra.push(solicitud);
+
+    const casos: CasoCompra[] = [];
+    for (const proveedorId of datos.proveedor_ids) {
+      const convenio = db.convenios.find(
+        (c) =>
+          c.proveedor_id === proveedorId &&
+          c.material_id === datos.material_id &&
+          esConvenioVigente(c)
+      );
+      const caso = store.crearCasoCompra({
+        proveedor_id: proveedorId,
+        material_id: datos.material_id,
+        titulo: datos.titulo,
+        descripcion: datos.descripcion,
+        monto_estimado: convenio?.precio_pactado ?? 0,
+        referencia: `OC-${Date.now().toString().slice(-6)}-${casos.length}`,
+        responsable_id: datos.responsable_id,
+      });
+      caso.solicitud_id = solicitud.id;
+      store.registrarEventoCaso(
+        caso.id,
+        "creado",
+        `Cotización comparativa de la solicitud ${solicitud.codigo}.`,
+        actor
+      );
+      if (datos.responsable_id)
+        store.asignarResponsableCasoCompra(caso.id, datos.responsable_id, actor.nombre);
+      casos.push(caso);
+    }
+
+    return { solicitud, casos };
+  },
+
+  // Compartida con recibirCasoCompra: recibir físicamente de un proveedor
+  // también confirma que ese fue el elegido.
+  resolverSolicitud(
+    solicitudId: string,
+    casoGanadorId: string,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const s = db.solicitudes_compra.find((x) => x.id === solicitudId);
+    if (!s || s.estado !== "abierta") return;
+    s.estado = "resuelta";
+    s.cotizacion_ganadora_id = casoGanadorId;
+    s.updated_at = new Date().toISOString();
+    store.registrarEventoCaso(
+      casoGanadorId,
+      "estado_cambiado",
+      "Elegida como cotización ganadora.",
+      actor
+    );
+
+    const hermanas = db.casos_compra.filter(
+      (c) =>
+        c.solicitud_id === solicitudId &&
+        c.id !== casoGanadorId &&
+        CASO_COMPRA_ABIERTO.includes(c.estado)
+    );
+    for (const h of hermanas) {
+      h.estado = "cancelado";
+      h.updated_at = new Date().toISOString();
+      store.registrarEventoCaso(
+        h.id,
+        "estado_cambiado",
+        "Cancelado automáticamente: se eligió otra cotización de la misma solicitud.",
+        actor
+      );
+    }
+  },
+
+  elegirGanadora(
+    solicitudId: string,
+    casoGanadorId: string,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const s = db.solicitudes_compra.find((x) => x.id === solicitudId);
+    if (!s) throw new Error("Solicitud no encontrada");
+    if (s.estado !== "abierta") throw new Error("Esta solicitud ya fue resuelta");
+    const caso = db.casos_compra.find(
+      (c) => c.id === casoGanadorId && c.solicitud_id === solicitudId
+    );
+    if (!caso) throw new Error("Esa cotización no pertenece a esta solicitud");
+    store.resolverSolicitud(solicitudId, casoGanadorId, actor);
+  },
+
+  agregarNotaCaso(
+    casoId: string,
+    texto: string,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    if (!texto.trim()) throw new Error("La nota no puede estar vacía");
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso no encontrado");
+    store.registrarEventoCaso(casoId, "nota", texto.trim(), actor);
   },
 
   /* ---------------- Email entrante (webhook) ---------------- */

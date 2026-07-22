@@ -6,6 +6,8 @@ import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
 import { getCurrentProfile } from "@/lib/auth";
+import { registrarEventoCaso } from "@/lib/eventos-caso";
+import { resolverSolicitud } from "@/lib/solicitudes";
 import { ESTADOS_CASO_COMPRA, type EstadoCasoCompra } from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -30,13 +32,16 @@ export async function crearCasoCompra(
     return { ok: false, error: "El monto no puede ser negativo" };
 
   const origen = notificacion_id ? ("stock_bajo" as const) : ("manual" as const);
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
     try {
-      store.crearCasoCompra(
+      const caso = store.crearCasoCompra(
         { proveedor_id, material_id, titulo, descripcion, monto_estimado, referencia, origen, responsable_id },
         notificacion_id ?? undefined
       );
+      store.registrarEventoCaso(caso.id, "creado", null, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -48,6 +53,7 @@ export async function crearCasoCompra(
       .select("id")
       .single();
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCaso(supabase, data.id, "creado", null, actor);
     if (notificacion_id) {
       await supabase
         .from("notificaciones")
@@ -81,9 +87,13 @@ export async function asignarResponsableCasoCompra(
   const yo = await getCurrentProfile();
   if (!yo) return { ok: false, error: "No autenticado" };
 
+  const detalleEvento = usuarioId ? "Responsable asignado" : "Responsable removido";
+  const actor = { id: yo.id, nombre: yo.nombre };
+
   if (DEMO) {
     try {
       store.asignarResponsableCasoCompra(casoId, usuarioId || null, yo.nombre);
+      store.registrarEventoCaso(casoId, "responsable_asignado", detalleEvento, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -95,6 +105,7 @@ export async function asignarResponsableCasoCompra(
       p_asignado_por: yo.nombre,
     });
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCaso(supabase, casoId, "responsable_asignado", detalleEvento, actor);
   }
 
   revalidatePath("/proveedores");
@@ -107,20 +118,34 @@ export async function cambiarEstadoCasoCompra(
 ): Promise<ActionResult> {
   if (!ESTADOS_CASO_COMPRA.includes(estado))
     return { ok: false, error: "Estado inválido" };
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
     try {
-      store.cambiarEstadoCasoCompra(id, estado);
+      store.cambiarEstadoCasoCompra(id, estado, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
   } else {
     const supabase = await createClient();
+    const { data: actual } = await supabase
+      .from("casos_compra")
+      .select("estado")
+      .eq("id", id)
+      .single();
     const { error } = await supabase
       .from("casos_compra")
       .update({ estado, updated_at: new Date().toISOString() })
       .eq("id", id);
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCaso(
+      supabase,
+      id,
+      "estado_cambiado",
+      `${actual?.estado ?? "?"} → ${estado}`,
+      actor
+    );
   }
 
   revalidatePath("/proveedores");
@@ -140,10 +165,12 @@ export async function recibirCasoCompra(
     return { ok: false, error: "La cantidad debe ser mayor a cero" };
   if (!Number.isFinite(costo) || costo < 0)
     return { ok: false, error: "Costo inválido" };
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
     try {
-      store.recibirCasoCompra(caso_id, cantidad, costo, ubicacion_id ?? null);
+      store.recibirCasoCompra(caso_id, cantidad, costo, ubicacion_id ?? null, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -156,6 +183,17 @@ export async function recibirCasoCompra(
       p_ubicacion: ubicacion_id ?? null,
     });
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCaso(supabase, caso_id, "estado_cambiado", "recibido", actor);
+
+    // Recibir físicamente de un proveedor confirma que ese fue el elegido
+    // (si el caso es una de varias cotizaciones comparadas).
+    const { data: caso } = await supabase
+      .from("casos_compra")
+      .select("solicitud_id")
+      .eq("id", caso_id)
+      .single();
+    if (caso?.solicitud_id)
+      await resolverSolicitud(supabase, caso.solicitud_id, caso_id, actor);
   }
 
   revalidatePath("/proveedores");
@@ -187,6 +225,8 @@ export async function solicitarCotizacion(
   if (!titulo) return { ok: false, error: "El asunto es obligatorio" };
 
   const origen = esBajo ? ("stock_bajo" as const) : ("manual" as const);
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
     try {
@@ -202,6 +242,8 @@ export async function solicitarCotizacion(
       });
       if (material_id)
         store.atenderNotificacionesDeMaterial(material_id, caso.id);
+      store.registrarEventoCaso(caso.id, "creado", null, actor);
+      store.registrarEventoCaso(caso.id, "correo_enviado", null, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -222,6 +264,8 @@ export async function solicitarCotizacion(
       .select("id")
       .single();
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCaso(supabase, data.id, "creado", null, actor);
+    await registrarEventoCaso(supabase, data.id, "correo_enviado", null, actor);
     if (material_id) {
       await supabase
         .from("notificaciones")
@@ -260,10 +304,13 @@ export async function enviarCotizacionCasoExistente(
   // automática — no tiene caso pisarlo con 0 si esta vez no hay convenio).
   const montoRaw = formData.get("monto_estimado");
   const monto_estimado = montoRaw != null ? Number(montoRaw) : null;
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
     try {
       store.enviarCotizacionCasoExistente(casoId, titulo, descripcion, monto_estimado);
+      store.registrarEventoCaso(casoId, "correo_enviado", null, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }

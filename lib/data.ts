@@ -7,6 +7,7 @@ import type {
   Auditoria,
   BomItemConMaterial,
   CasoCompraConRelaciones,
+  CasoCompraEvento,
   CasoVentaConRelaciones,
   Categoria,
   Cliente,
@@ -18,6 +19,8 @@ import type {
   ProducibleConReceta,
   Proveedor,
   SalidaPendienteConRelaciones,
+  SolicitudCompra,
+  SolicitudCompraConRelaciones,
   StockPorUbicacion,
   Ubicacion,
 } from "@/lib/types";
@@ -410,10 +413,16 @@ export async function getNotificaciones(): Promise<
 export async function getCasosCompra(): Promise<CasoCompraConRelaciones[]> {
   if (DEMO) return store.getCasosCompra();
   const supabase = await createClient();
-  const { data } = await supabase
+  // El nombre del FK es obligatorio aquí: casos_compra <-> solicitudes_compra
+  // tiene DOS relaciones (solicitud_id, y la inversa cotizacion_ganadora_id),
+  // así que PostgREST no puede adivinar cuál embeber sin que se lo digamos.
+  const { data, error } = await supabase
     .from("casos_compra")
-    .select("*, proveedores(id,nombre), materiales(id,nombre,sku)")
+    .select(
+      "*, proveedores(id,nombre), materiales(id,nombre,sku), solicitudes_compra!casos_compra_solicitud_id_fkey(codigo)"
+    )
     .order("updated_at", { ascending: false });
+  if (error) console.error("getCasosCompra:", error.message);
   return (data as CasoCompraConRelaciones[]) ?? [];
 }
 
@@ -425,6 +434,39 @@ export async function getConvenios(): Promise<ConvenioConRelaciones[]> {
     .select("*, proveedores(id,nombre), materiales(id,nombre,sku,unidad)")
     .order("created_at", { ascending: false });
   return (data as ConvenioConRelaciones[]) ?? [];
+}
+
+// Solicitud de compra + sus cotizaciones (una por proveedor) para el modal
+// de comparación — components/caso-detalle-modal.tsx.
+export async function getSolicitudConCasos(
+  solicitudId: string
+): Promise<SolicitudCompraConRelaciones | null> {
+  if (DEMO) return store.getSolicitudConCasos(solicitudId);
+  const supabase = await createClient();
+  const [{ data: solicitud }, { data: casos }] = await Promise.all([
+    supabase.from("solicitudes_compra").select("*").eq("id", solicitudId).single(),
+    supabase
+      .from("casos_compra")
+      .select("*, proveedores(id,nombre), materiales(id,nombre,sku)")
+      .eq("solicitud_id", solicitudId),
+  ]);
+  if (!solicitud) return null;
+  return {
+    ...(solicitud as SolicitudCompra),
+    casos: (casos as CasoCompraConRelaciones[]) ?? [],
+  };
+}
+
+// Timeline de un caso (components/caso-timeline.tsx).
+export async function getEventosCaso(casoId: string): Promise<CasoCompraEvento[]> {
+  if (DEMO) return store.getEventosCaso(casoId);
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("casos_compra_eventos")
+    .select("*")
+    .eq("caso_compra_id", casoId)
+    .order("created_at", { ascending: true });
+  return (data as CasoCompraEvento[]) ?? [];
 }
 
 /* ---------------- Portal de clientes ---------------- */

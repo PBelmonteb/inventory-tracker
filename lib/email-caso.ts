@@ -70,3 +70,25 @@ export function resumirCuerpo(cuerpo: string, max = 280): string | null {
   if (!limpio) return null;
   return limpio.length > max ? `${limpio.slice(0, max)}…` : limpio;
 }
+
+type CasoReferenciaMatch = { id: string; referencia: string | null };
+
+/**
+ * Busca, entre casos con código (OC-123456, OC-123456-0, SOL-123456) en su
+ * `referencia`, cuál corresponde al asunto de un correo entrante — para
+ * ligar una respuesta al caso correcto (evento "correo_recibido") en vez
+ * de crear un caso nuevo. Mismo idioma que matchMaterial: junta todos los
+ * candidatos del texto, luego los compara uno por uno.
+ */
+export function matchReferenciaEnAsunto<T extends CasoReferenciaMatch>(
+  asunto: string,
+  casos: T[]
+): T | null {
+  const codigos =
+    asunto.toUpperCase().match(/\b(?:OC|SOL)-\d{4,8}(?:-\d{1,3})?\b/g) ?? [];
+  for (const codigo of codigos) {
+    const caso = casos.find((c) => c.referencia?.toUpperCase() === codigo);
+    if (caso) return caso;
+  }
+  return null;
+}

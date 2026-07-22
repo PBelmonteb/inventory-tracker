@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
-import { Button, Input, Label, Select } from "@/components/ui";
+import { Button, Input, Label } from "@/components/ui";
 import { ResponsableSelect } from "@/components/responsable-select";
+import { ProveedorMultiSelect } from "@/components/proveedor-multi-select";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
-import { crearCasoCompra } from "@/lib/actions/compras";
+import { crearSolicitudCompra } from "@/lib/actions/solicitudes";
 import { obtenerConvenioVigente } from "@/lib/actions/convenios";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
 import type { Convenio, Proveedor } from "@/lib/types";
@@ -36,7 +37,7 @@ export function CasoCompraForm({
   prefill?: PrefillCasoCompra | null;
 }) {
   const router = useRouter();
-  const [proveedorId, setProveedorId] = useState("");
+  const [proveedorIds, setProveedorIds] = useState<string[]>([]);
   const [materialId, setMaterialId] = useState("");
   const [responsableId, setResponsableId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -44,32 +45,34 @@ export function CasoCompraForm({
   const [convenio, setConvenio] = useState<Convenio | null>(null);
   const montoRef = useRef<HTMLInputElement>(null);
 
-  // Sincroniza los selects con el prefill cada vez que se abre.
+  // Sincroniza los campos con el prefill cada vez que se abre.
   useEffect(() => {
     if (open) {
-      setProveedorId(prefill?.proveedor_id ?? "");
+      setProveedorIds(prefill ? [prefill.proveedor_id] : []);
       setMaterialId(prefill?.material_id ?? "");
       setResponsableId("");
       setError(null);
     }
   }, [open, prefill]);
 
-  // Con proveedor + material elegidos, busca si hay un convenio vigente
-  // para ofrecer su precio pactado (no reemplaza monto_estimado a la
-  // fuerza — el botón "Usar convenio" lo hace explícito).
+  // El precio pactado / botón "Usar convenio" solo tiene sentido con
+  // exactamente un proveedor elegido — con varios, cada cotización toma
+  // su propio convenio sola al crearse (lib/actions/solicitudes.ts).
+  const unProveedorId = proveedorIds.length === 1 ? proveedorIds[0] : null;
+
   useEffect(() => {
-    if (!open || !proveedorId || !materialId) {
+    if (!open || !unProveedorId || !materialId) {
       setConvenio(null);
       return;
     }
     let cancelado = false;
-    obtenerConvenioVigente(materialId, proveedorId).then((c) => {
+    obtenerConvenioVigente(materialId, unProveedorId).then((c) => {
       if (!cancelado) setConvenio(c);
     });
     return () => {
       cancelado = true;
     };
-  }, [open, proveedorId, materialId]);
+  }, [open, unProveedorId, materialId]);
 
   function usarConvenio() {
     if (!convenio || !montoRef.current) return;
@@ -79,12 +82,16 @@ export function CasoCompraForm({
 
   async function onSubmit(formData: FormData) {
     setError(null);
+    if (proveedorIds.length === 0) {
+      setError("Selecciona al menos un proveedor");
+      return;
+    }
     setCargando(true);
-    formData.set("proveedor_id", proveedorId);
+    for (const id of proveedorIds) formData.append("proveedor_ids", id);
     formData.set("material_id", materialId);
     formData.set("responsable_id", responsableId);
     if (prefill) formData.set("notificacion_id", prefill.notificacion_id);
-    const res = await crearCasoCompra(formData);
+    const res = await crearSolicitudCompra(formData);
     setCargando(false);
     if (!res.ok) {
       setError(res.error);
@@ -99,28 +106,27 @@ export function CasoCompraForm({
     <Modal open={open} onClose={onClose} title="Nuevo caso de compra">
       <form action={onSubmit} className="space-y-3">
         <div>
-          <Label htmlFor="cc-proveedor">Proveedor</Label>
-          <Select
-            id="cc-proveedor"
-            value={proveedorId}
-            onChange={(e) => setProveedorId(e.target.value)}
-            required
-          >
-            <option value="">— Selecciona —</option>
-            {proveedores.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.nombre}
-              </option>
-            ))}
-          </Select>
+          <Label htmlFor="cc-proveedor">Proveedor(es)</Label>
+          <ProveedorMultiSelect
+            proveedores={proveedores}
+            value={proveedorIds}
+            onChange={setProveedorIds}
+          />
+          {proveedorIds.length > 1 && (
+            <p className="mt-1.5 text-xs text-muted">
+              Se creará una solicitud con una cotización por cada proveedor
+              elegido — para poder comparar y elegir la mejor después.
+            </p>
+          )}
         </div>
 
         <div>
           <Label htmlFor="cc-material">Material (opcional)</Label>
-          <Select
+          <select
             id="cc-material"
             value={materialId}
             onChange={(e) => setMaterialId(e.target.value)}
+            className="w-full cursor-pointer rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/20"
           >
             <option value="">— Ninguno —</option>
             {materiales.map((m) => (
@@ -129,7 +135,7 @@ export function CasoCompraForm({
                 {m.sku ? ` (${m.sku})` : ""}
               </option>
             ))}
-          </Select>
+          </select>
         </div>
 
         <div>
@@ -162,48 +168,41 @@ export function CasoCompraForm({
           />
         </div>
 
-        <div>
-          <Label htmlFor="cc-monto">Monto estimado (MXN)</Label>
-          <Input
-            ref={montoRef}
-            id="cc-monto"
-            name="monto_estimado"
-            type="number"
-            step="any"
-            min="0"
-            placeholder="0.00"
-          />
-          {convenio && (
-            <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2/40 px-2.5 py-2 text-xs">
-              <span className="text-muted">
-                Convenio vigente: ${convenio.precio_pactado.toFixed(2)}/unidad
-                {convenio.cantidad_minima
-                  ? ` · mínimo ${convenio.cantidad_minima}`
-                  : ""}
-                {convenio.dias_entrega_pactado
-                  ? ` · entrega ~${convenio.dias_entrega_pactado} días`
-                  : ""}
-                {convenio.condiciones_pago ? ` · ${convenio.condiciones_pago}` : ""}
-              </span>
-              <button
-                type="button"
-                onClick={usarConvenio}
-                className="cursor-pointer whitespace-nowrap font-medium text-accent hover:underline"
-              >
-                Usar convenio
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div>
-          <Label htmlFor="cc-referencia">Referencia</Label>
-          <Input
-            id="cc-referencia"
-            name="referencia"
-            placeholder="OC-1009 (auto si se deja vacío)"
-          />
-        </div>
+        {unProveedorId && (
+          <div>
+            <Label htmlFor="cc-monto">Monto estimado (MXN)</Label>
+            <Input
+              ref={montoRef}
+              id="cc-monto"
+              name="monto_estimado"
+              type="number"
+              step="any"
+              min="0"
+              placeholder="0.00"
+            />
+            {convenio && (
+              <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2/40 px-2.5 py-2 text-xs">
+                <span className="text-muted">
+                  Convenio vigente: ${convenio.precio_pactado.toFixed(2)}/unidad
+                  {convenio.cantidad_minima
+                    ? ` · mínimo ${convenio.cantidad_minima}`
+                    : ""}
+                  {convenio.dias_entrega_pactado
+                    ? ` · entrega ~${convenio.dias_entrega_pactado} días`
+                    : ""}
+                  {convenio.condiciones_pago ? ` · ${convenio.condiciones_pago}` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={usarConvenio}
+                  className="cursor-pointer whitespace-nowrap font-medium text-accent hover:underline"
+                >
+                  Usar convenio
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {error && (
           <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">

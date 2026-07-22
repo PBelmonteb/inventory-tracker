@@ -297,6 +297,9 @@ export interface CasoCompra {
   // Solo se llena si el envío automático de orden por convenio tuvo éxito
   // de verdad (lib/email.ts) — nunca se finge un envío que no ocurrió.
   correo_enviado_at: string | null;
+  // Si no es null, este caso es una de varias cotizaciones (una por
+  // proveedor) de la misma necesidad — ver SolicitudCompra.
+  solicitud_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -304,6 +307,68 @@ export interface CasoCompra {
 export interface CasoCompraConRelaciones extends CasoCompra {
   proveedores: Pick<Proveedor, "id" | "nombre"> | null;
   materiales: Pick<Material, "id" | "nombre" | "sku"> | null;
+  // Solo si solicitud_id no es null — el código para mostrar junto al de
+  // este caso y agrupar visualmente las cotizaciones hermanas en la lista.
+  solicitudes_compra: { codigo: string } | null;
+}
+
+/* ---------------- Solicitudes de compra (comparar proveedores) ---------------- */
+
+// Agrupa varias cotizaciones (casos_compra, una por proveedor) de la
+// misma necesidad para poder compararlas y elegir una ganadora — las
+// demás se cancelan solas (lib/actions/solicitudes.ts).
+export type EstadoSolicitudCompra = "abierta" | "resuelta" | "cancelada";
+
+export const ESTADOS_SOLICITUD_COMPRA: EstadoSolicitudCompra[] = [
+  "abierta",
+  "resuelta",
+  "cancelada",
+];
+
+export interface SolicitudCompra {
+  id: string;
+  codigo: string; // SOL-xxxxxx
+  material_id: string | null;
+  material_nombre: string | null;
+  titulo: string;
+  estado: EstadoSolicitudCompra;
+  responsable_id: string | null;
+  responsable_nombre: string | null;
+  cotizacion_ganadora_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SolicitudCompraConRelaciones extends SolicitudCompra {
+  casos: CasoCompraConRelaciones[];
+}
+
+// Timeline de un caso (estilo Salesforce): qué ha pasado, en orden.
+// "nota" es la única que puede escribir un humano libremente; el resto
+// las genera el sistema en cada acción relevante.
+export type TipoEventoCaso =
+  | "creado"
+  | "correo_enviado"
+  | "correo_recibido"
+  | "estado_cambiado"
+  | "responsable_asignado"
+  | "nota";
+
+// Quién hizo una acción que se registra en el timeline — null/null cuando
+// la generó el sistema (cron, webhook), no una persona.
+export interface UsuarioActor {
+  id: string | null;
+  nombre: string | null;
+}
+
+export interface CasoCompraEvento {
+  id: string;
+  caso_compra_id: string;
+  tipo: TipoEventoCaso;
+  detalle: string | null;
+  usuario_id: string | null;
+  usuario_nombre: string | null;
+  created_at: string;
 }
 
 /* ---------------- Portal de clientes ---------------- */

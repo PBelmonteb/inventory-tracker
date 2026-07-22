@@ -7,6 +7,7 @@ import type {
   Categoria,
   Cliente,
   Convenio,
+  CasoCompraEvento,
   HistorialPrecio,
   Material,
   Movimiento,
@@ -14,6 +15,7 @@ import type {
   Profile,
   Proveedor,
   SalidaPendiente,
+  SolicitudCompra,
   Ubicacion,
 } from "@/lib/types";
 
@@ -65,6 +67,8 @@ export function makeSeed(): {
   }[];
   bom_items: BomItem[];
   convenios: Convenio[];
+  solicitudes_compra: SolicitudCompra[];
+  casos_compra_eventos: CasoCompraEvento[];
 } {
   const categorias: Categoria[] = [
     { id: "cat-perfiles", nombre: "Perfiles de aluminio", created_at: diasAtras(60) },
@@ -206,6 +210,7 @@ export function makeSeed(): {
       dias_cobertura_restante: null,
       lead_time_dias_usado: null,
       correo_enviado_at: null,
+      solicitud_id: null,
       created_at: diasAtras(4),
       updated_at: diasAtras(4),
     },
@@ -227,6 +232,7 @@ export function makeSeed(): {
       dias_cobertura_restante: null,
       lead_time_dias_usado: null,
       correo_enviado_at: null,
+      solicitud_id: null,
       created_at: diasAtras(2),
       updated_at: diasAtras(2),
     },
@@ -248,8 +254,138 @@ export function makeSeed(): {
       dias_cobertura_restante: null,
       lead_time_dias_usado: null,
       correo_enviado_at: null,
+      solicitud_id: null,
       created_at: diasAtras(1),
       updated_at: diasAtras(1),
+    },
+    // Solicitud comparativa de ejemplo: dos proveedores cotizando el mismo
+    // material, para que el modal de comparación tenga datos desde el
+    // arranque (ver solicitudes_compra más abajo).
+    {
+      id: "cc-4",
+      proveedor_id: "prov-mty",
+      material_id: "mat-con001",
+      titulo: 'Reabasto silicón estructural — comparar proveedores',
+      descripcion: "Cotización del proveedor habitual.",
+      monto_estimado: 14250,
+      referencia: "OC-847221-0",
+      estado: "cotizando",
+      origen: "manual",
+      movimiento_id: null,
+      proveedor_nombre: "Herrajes MTY",
+      responsable_id: null,
+      responsable_nombre: null,
+      nivel_riesgo: null,
+      dias_cobertura_restante: null,
+      lead_time_dias_usado: null,
+      correo_enviado_at: null,
+      solicitud_id: "sol-1",
+      created_at: diasAtras(3),
+      updated_at: diasAtras(2),
+    },
+    {
+      id: "cc-5",
+      proveedor_id: "prov-norte",
+      material_id: "mat-con001",
+      titulo: 'Reabasto silicón estructural — comparar proveedores',
+      descripcion: "Cotización alterna para comparar precio.",
+      monto_estimado: 13800,
+      referencia: "OC-847221-1",
+      estado: "cotizando",
+      origen: "manual",
+      movimiento_id: null,
+      proveedor_nombre: "Aluminios del Norte",
+      responsable_id: null,
+      responsable_nombre: null,
+      nivel_riesgo: null,
+      dias_cobertura_restante: null,
+      lead_time_dias_usado: null,
+      correo_enviado_at: null,
+      solicitud_id: "sol-1",
+      created_at: diasAtras(3),
+      updated_at: diasAtras(3),
+    },
+  ];
+
+  const solicitudes_compra: SolicitudCompra[] = [
+    {
+      id: "sol-1",
+      codigo: "SOL-847221",
+      material_id: "mat-con001",
+      material_nombre: "Silicón estructural",
+      titulo: 'Reabasto silicón estructural — comparar proveedores',
+      estado: "abierta",
+      responsable_id: null,
+      responsable_nombre: null,
+      cotizacion_ganadora_id: null,
+      created_at: diasAtras(3),
+      updated_at: diasAtras(3),
+    },
+  ];
+
+  const casos_compra_eventos: CasoCompraEvento[] = [
+    {
+      id: "evt-1",
+      caso_compra_id: "cc-4",
+      tipo: "creado",
+      detalle: "Cotización comparativa de la solicitud SOL-847221.",
+      usuario_id: null,
+      usuario_nombre: null,
+      created_at: diasAtras(3),
+    },
+    {
+      id: "evt-2",
+      caso_compra_id: "cc-4",
+      tipo: "correo_enviado",
+      detalle: null,
+      usuario_id: PERFIL_DEMO.id,
+      usuario_nombre: PERFIL_DEMO.nombre,
+      created_at: diasAtras(3),
+    },
+    {
+      id: "evt-3",
+      caso_compra_id: "cc-4",
+      tipo: "correo_recibido",
+      detalle: "Buen día, cotizamos $14,250.00 MXN, entrega 4 días hábiles.",
+      usuario_id: null,
+      usuario_nombre: null,
+      created_at: diasAtras(2),
+    },
+    {
+      id: "evt-4",
+      caso_compra_id: "cc-5",
+      tipo: "creado",
+      detalle: "Cotización comparativa de la solicitud SOL-847221.",
+      usuario_id: null,
+      usuario_nombre: null,
+      created_at: diasAtras(3),
+    },
+    {
+      id: "evt-5",
+      caso_compra_id: "cc-5",
+      tipo: "correo_enviado",
+      detalle: null,
+      usuario_id: PERFIL_DEMO.id,
+      usuario_nombre: PERFIL_DEMO.nombre,
+      created_at: diasAtras(3),
+    },
+    {
+      id: "evt-6",
+      caso_compra_id: "cc-1",
+      tipo: "creado",
+      detalle: null,
+      usuario_id: null,
+      usuario_nombre: null,
+      created_at: diasAtras(4),
+    },
+    {
+      id: "evt-7",
+      caso_compra_id: "cc-1",
+      tipo: "nota",
+      detalle: "Llamé al proveedor, confirma entrega la próxima semana.",
+      usuario_id: PERFIL_DEMO.id,
+      usuario_nombre: PERFIL_DEMO.nombre,
+      created_at: diasAtras(1),
     },
   ];
 
@@ -440,5 +576,7 @@ export function makeSeed(): {
     material_stock_ubicacion: [],
     bom_items: [],
     convenios,
+    solicitudes_compra,
+    casos_compra_eventos,
   };
 }
