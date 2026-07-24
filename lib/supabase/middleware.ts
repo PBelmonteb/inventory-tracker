@@ -3,7 +3,17 @@ import { NextResponse, type NextRequest } from "next/server";
 
 type CookieToSet = { name: string; value: string; options?: CookieOptions };
 
-const PUBLIC_PATHS = ["/login", "/auth"];
+// Rutas sin sesión de usuario por diseño: son webhooks (Cloudflare Email
+// Worker, pg_cron -> pg_net) que se autentican con su propio secreto
+// (x-webhook-secret, ver lib/webhook-auth.ts) — nunca traen cookie de
+// sesión, así que antes de esto el middleware las redirigía a /login sin
+// que su propio chequeo de secreto llegara siquiera a ejecutarse.
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth",
+  "/api/email-caso",
+  "/api/generar-casos-automaticos",
+];
 
 /** Refresca la sesión y protege rutas privadas. */
 export async function updateSession(request: NextRequest) {
