@@ -25,6 +25,7 @@ import {
   Factory,
   LogOut,
   FileText,
+  Sparkles,
 } from "lucide-react";
 
 const NAV = [
@@ -35,6 +36,7 @@ const NAV = [
   { href: "/proveedores", label: "Proveedores", icon: Truck },
   { href: "/clientes", label: "Clientes", icon: Users },
   { href: "/reportes", label: "Reportes", icon: BarChart3 },
+  { href: "/novedades", label: "Novedades", icon: Sparkles },
   { href: "/precios", label: "Precios", icon: Tag, gestor: true },
   { href: "/importar", label: "Importar", icon: Upload, gestor: true },
   { href: "/etiquetas", label: "Etiquetas", icon: QrCode, gestor: true },
