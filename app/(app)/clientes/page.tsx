@@ -9,12 +9,18 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientesPage() {
+export default async function ClientesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ todos?: string }>;
+}) {
+  const { todos } = await searchParams;
+  const verTodos = todos === "1";
   const [clientes, casos, salidasPendientes, materiales, usuariosRes] =
     await Promise.all([
       getClientes(),
-      getCasosVenta(),
-      getSalidasPendientes(),
+      getCasosVenta({ todos: verTodos }),
+      getSalidasPendientes({ todos: verTodos }),
       getMateriales(),
       listarUsuariosParaAsignar(),
     ]);
@@ -34,6 +40,7 @@ export default async function ClientesPage() {
       salidasPendientes={salidasPendientes}
       materiales={opciones}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
+      verTodos={verTodos}
     />
   );
 }

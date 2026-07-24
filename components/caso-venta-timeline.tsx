@@ -1,23 +1,21 @@
 "use client";
 
-// Timeline de un caso de compra (estilo Salesforce): qué ha pasado, en
-// orden — mismo idioma de icono/color por tipo + composición en frase que
-// ya usa components/auditoria-view.tsx para su bitácora.
+// Timeline de un caso de venta (estilo Salesforce) — gemelo de
+// components/caso-timeline.tsx, mismo idioma de icono/color por tipo;
+// tabla propia (casos_venta_eventos) porque la FK es a casos_venta.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
-import { agregarNotaCaso } from "@/lib/actions/solicitudes";
+import { agregarNotaCasoVenta } from "@/lib/actions/ventas";
 import { formatDate } from "@/lib/utils";
-import type { CasoCompraEvento, TipoEventoCaso } from "@/lib/types";
+import type { CasoVentaEvento, TipoEventoCaso } from "@/lib/types";
 import {
   FilePlus,
   Mail,
   MailOpen,
   MessageSquare,
   RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
   UserRound,
 } from "lucide-react";
 
@@ -57,53 +55,13 @@ const EVENTO_META: Record<
   },
 };
 
-// Aviso solo visible para el staff interno (este timeline vive en /proveedores,
-// detrás de sesión — nunca lo ve un proveedor ni un cliente): no bloquea el
-// correo (rechazarlo de plano rompería respuestas legítimas desde un
-// contacto distinto al registrado), solo evita que alguien lo pase por
-// alto sin darse cuenta de que viene de fuera o de que no coincide con el
-// proveedor esperado. Ver app/api/email-caso/route.ts.
-function AvisosRemitente({ evento }: { evento: CasoCompraEvento }) {
-  if (evento.remitente_externo == null) return null;
-  return (
-    <div className="mt-1 space-y-1">
-      {evento.remitente_externo && (
-        <p className="flex items-start gap-1.5 rounded-lg bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-400">
-          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Correo externo — el remitente no pertenece a la organización. Ten
-          cuidado con adjuntos o instrucciones inusuales (cambios de cuenta,
-          urgencia, datos sensibles).
-        </p>
-      )}
-      {evento.remitente_verificado === false && (
-        <p className="flex items-start gap-1.5 rounded-lg bg-red-500/10 px-2 py-1.5 text-xs font-medium text-red-600 dark:text-red-400">
-          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          El remitente NO coincide con el contacto registrado del proveedor
-          de este caso — verifica su identidad antes de confiar en este
-          mensaje.
-        </p>
-      )}
-      {evento.remitente_verificado === true && (
-        <p className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-400">
-          <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-          El remitente coincide con el contacto registrado del proveedor.
-        </p>
-      )}
-    </div>
-  );
-}
-
-export function CasoTimeline({
+export function CasoVentaTimeline({
   casoId,
   eventos,
   onNotaAgregada,
 }: {
   casoId: string;
-  eventos: CasoCompraEvento[];
-  // El modal que embebe este timeline solo vuelve a pedir sus eventos
-  // cuando cambia [open, caso] — router.refresh() por sí solo no lo
-  // dispara, así que la nota recién agregada no aparecía hasta cerrar y
-  // reabrir el modal. Este callback deja que el padre la refresque ya.
+  eventos: CasoVentaEvento[];
   onNotaAgregada?: () => void;
 }) {
   const router = useRouter();
@@ -115,7 +73,7 @@ export function CasoTimeline({
     if (!nota.trim()) return;
     setEnviando(true);
     setError(null);
-    const res = await agregarNotaCaso(casoId, nota);
+    const res = await agregarNotaCasoVenta(casoId, nota);
     setEnviando(false);
     if (!res.ok) {
       setError(res.error);
@@ -134,7 +92,7 @@ export function CasoTimeline({
         <input
           value={nota}
           onChange={(e) => setNota(e.target.value)}
-          placeholder="Agregar una nota... (ej. llamé al proveedor, confirma en 2 días)"
+          placeholder="Agregar una nota... (ej. llamé al cliente, confirma en 2 días)"
           className="w-full rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-fg placeholder:text-faint outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -180,12 +138,9 @@ export function CasoTimeline({
                     </span>
                   </p>
                   {e.detalle && (e.tipo === "correo_enviado" || e.tipo === "correo_recibido") ? (
-                    <>
-                      <AvisosRemitente evento={e} />
-                      <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2/60 p-2 font-sans text-xs text-muted">
-                        {e.detalle}
-                      </pre>
-                    </>
+                    <pre className="mt-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface-2/60 p-2 font-sans text-xs text-muted">
+                      {e.detalle}
+                    </pre>
                   ) : (
                     e.detalle && <p className="text-xs text-muted">{e.detalle}</p>
                   )}

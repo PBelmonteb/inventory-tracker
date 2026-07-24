@@ -80,6 +80,15 @@ export interface ProducibleConReceta {
   receta: BomItemConMaterial[];
 }
 
+// Lookup inverso de BOM: qué producibles usan este material como componente
+// (para material-detail.tsx — "Se usa en"). Solo lo esencial para linkear a
+// /produccion, no la receta completa (eso ya lo trae getBom del lado del producto).
+export interface ProductoQueUsa {
+  id: string;
+  nombre: string;
+  sku: string | null;
+}
+
 // Nivel de severidad de una alerta de stock.
 export type NivelStock = "ok" | "aviso" | "bajo";
 
@@ -364,6 +373,27 @@ export interface UsuarioActor {
 export interface CasoCompraEvento {
   id: string;
   caso_compra_id: string;
+  tipo: TipoEventoCaso;
+  detalle: string | null;
+  usuario_id: string | null;
+  usuario_nombre: string | null;
+  created_at: string;
+  // Solo se llenan en eventos de correo (correo_enviado/correo_recibido) —
+  // null en el resto. El remitente de un correo (`From:`) no se autentica
+  // de ninguna forma (sin SPF/DKIM todavía); estas banderas no evitan un
+  // correo falsificado, solo evitan que el staff lo pase por alto sin
+  // darse cuenta de que viene de fuera o de que no coincide con el
+  // proveedor esperado. Ver app/api/email-caso/route.ts.
+  remitente_externo: boolean | null;
+  remitente_verificado: boolean | null;
+}
+
+// Timeline de un caso de venta — mismo idioma que CasoCompraEvento (ver
+// components/caso-timeline.tsx), tabla propia (casos_venta_eventos) porque
+// la FK es a casos_venta, no a casos_compra.
+export interface CasoVentaEvento {
+  id: string;
+  caso_venta_id: string;
   tipo: TipoEventoCaso;
   detalle: string | null;
   usuario_id: string | null;

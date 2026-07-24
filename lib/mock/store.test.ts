@@ -172,6 +172,107 @@ describe("guardarBom", () => {
   });
 });
 
+describe("generarCasosAutomaticosPorStockBajo — fan-out multi-convenio (DEMO)", () => {
+  it("con convenios vigentes de 2+ proveedores, crea una solicitud comparativa en vez de un caso suelto", () => {
+    const provA = store.crearCatalogo("proveedores", "Proveedor A " + Math.random());
+    const provB = store.crearCatalogo("proveedores", "Proveedor B " + Math.random());
+    const m = crearMaterialPrueba({
+      proveedor_id: provA.id,
+      stock_actual: 5,
+      stock_minimo: 10,
+    });
+    store.crearConvenio({
+      proveedor_id: provA.id,
+      material_id: m.id,
+      precio_pactado: 10,
+      cantidad_minima: null,
+      dias_entrega_pactado: 5,
+      condiciones_pago: null,
+      vigencia_hasta: null,
+      notas: null,
+      auto_enviar: false,
+    });
+    store.crearConvenio({
+      proveedor_id: provB.id,
+      material_id: m.id,
+      precio_pactado: 8,
+      cantidad_minima: null,
+      dias_entrega_pactado: 7,
+      condiciones_pago: null,
+      vigencia_hasta: null,
+      notas: null,
+      auto_enviar: false,
+    });
+
+    // No se afirma sobre resumen.casosCreados en total: el store es un
+    // singleton compartido entre tests y el seed de DEMO ya trae materiales
+    // bajo mínimo propios — se filtra solo por el material de esta prueba.
+    store.generarCasosAutomaticosPorStockBajo();
+
+    const casos = store.getCasosCompra().filter((c) => c.material_id === m.id);
+    expect(casos).toHaveLength(2);
+    expect(new Set(casos.map((c) => c.proveedor_id))).toEqual(new Set([provA.id, provB.id]));
+    // Ambas cotizaciones comparten la misma solicitud.
+    const solicitudId = casos[0].solicitud_id;
+    expect(solicitudId).not.toBeNull();
+    expect(casos.every((c) => c.solicitud_id === solicitudId)).toBe(true);
+
+    // Cada una loguea su propio evento "creado" mencionando la solicitud.
+    for (const c of casos) {
+      const eventos = store.getEventosCaso(c.id);
+      expect(eventos.some((e) => e.tipo === "creado" && /solicitud/i.test(e.detalle ?? ""))).toBe(
+        true
+      );
+    }
+  });
+
+  it("con auto_enviar en la solicitud comparativa, cada cotización se manda sola (simulado)", () => {
+    const provA = store.crearCatalogo("proveedores", "Proveedor C " + Math.random());
+    store.actualizarProveedor(provA.id, { contacto: "compras@provc.mx", dias_entrega_declarado: null });
+    const provB = store.crearCatalogo("proveedores", "Proveedor D " + Math.random());
+    store.actualizarProveedor(provB.id, { contacto: "compras@provd.mx", dias_entrega_declarado: null });
+    const m = crearMaterialPrueba({
+      proveedor_id: provA.id,
+      stock_actual: 5,
+      stock_minimo: 10,
+    });
+    store.crearConvenio({
+      proveedor_id: provA.id,
+      material_id: m.id,
+      precio_pactado: 10,
+      cantidad_minima: null,
+      dias_entrega_pactado: 5,
+      condiciones_pago: null,
+      vigencia_hasta: null,
+      notas: null,
+      auto_enviar: true,
+    });
+    store.crearConvenio({
+      proveedor_id: provB.id,
+      material_id: m.id,
+      precio_pactado: 8,
+      cantidad_minima: null,
+      dias_entrega_pactado: 7,
+      condiciones_pago: null,
+      vigencia_hasta: null,
+      notas: null,
+      auto_enviar: true,
+    });
+
+    store.generarCasosAutomaticosPorStockBajo();
+
+    const casos = store.getCasosCompra().filter((c) => c.material_id === m.id);
+    expect(casos).toHaveLength(2);
+    expect(casos.every((c) => c.estado === "ordenado")).toBe(true);
+    expect(casos.every((c) => c.correo_enviado_at !== null)).toBe(true);
+    for (const c of casos) {
+      const eventos = store.getEventosCaso(c.id);
+      const correo = eventos.find((e) => e.tipo === "correo_enviado");
+      expect(correo?.detalle).toMatch(/Asunto:/);
+    }
+  });
+});
+
 describe("producir", () => {
   it("consume los componentes y genera el producto con el WAC de la receta", () => {
     const bisagra = crearMaterialPrueba({ costo_unitario: 0 });

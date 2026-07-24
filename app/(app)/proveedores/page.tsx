@@ -9,12 +9,18 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ProveedoresPage() {
+export default async function ProveedoresPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ todos?: string }>;
+}) {
+  const { todos } = await searchParams;
+  const verTodos = todos === "1";
   // getNotificaciones dispara la sincronización idempotente de alertas.
   const [notificaciones, casos, proveedores, materiales, usuariosRes] =
     await Promise.all([
       getNotificaciones(),
-      getCasosCompra(),
+      getCasosCompra({ todos: verTodos }),
       getProveedores(),
       getMateriales(),
       listarUsuariosParaAsignar(),
@@ -34,6 +40,7 @@ export default async function ProveedoresPage() {
       materiales={opciones}
       materialesCompletos={materiales}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
+      verTodos={verTodos}
     />
   );
 }

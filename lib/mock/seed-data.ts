@@ -8,6 +8,7 @@ import type {
   Cliente,
   Convenio,
   CasoCompraEvento,
+  CasoVentaEvento,
   HistorialPrecio,
   Material,
   Movimiento,
@@ -69,6 +70,7 @@ export function makeSeed(): {
   convenios: Convenio[];
   solicitudes_compra: SolicitudCompra[];
   casos_compra_eventos: CasoCompraEvento[];
+  casos_venta_eventos: CasoVentaEvento[];
 } {
   const categorias: Categoria[] = [
     { id: "cat-perfiles", nombre: "Perfiles de aluminio", created_at: diasAtras(60) },
@@ -331,6 +333,8 @@ export function makeSeed(): {
       detalle: "Cotización comparativa de la solicitud SOL-847221.",
       usuario_id: null,
       usuario_nombre: null,
+      remitente_externo: null,
+      remitente_verificado: null,
       created_at: diasAtras(3),
     },
     {
@@ -340,6 +344,8 @@ export function makeSeed(): {
       detalle: null,
       usuario_id: PERFIL_DEMO.id,
       usuario_nombre: PERFIL_DEMO.nombre,
+      remitente_externo: null,
+      remitente_verificado: null,
       created_at: diasAtras(3),
     },
     {
@@ -349,6 +355,8 @@ export function makeSeed(): {
       detalle: "Buen día, cotizamos $14,250.00 MXN, entrega 4 días hábiles.",
       usuario_id: null,
       usuario_nombre: null,
+      remitente_externo: true,
+      remitente_verificado: true,
       created_at: diasAtras(2),
     },
     {
@@ -358,6 +366,8 @@ export function makeSeed(): {
       detalle: "Cotización comparativa de la solicitud SOL-847221.",
       usuario_id: null,
       usuario_nombre: null,
+      remitente_externo: null,
+      remitente_verificado: null,
       created_at: diasAtras(3),
     },
     {
@@ -367,6 +377,8 @@ export function makeSeed(): {
       detalle: null,
       usuario_id: PERFIL_DEMO.id,
       usuario_nombre: PERFIL_DEMO.nombre,
+      remitente_externo: null,
+      remitente_verificado: null,
       created_at: diasAtras(3),
     },
     {
@@ -376,6 +388,8 @@ export function makeSeed(): {
       detalle: null,
       usuario_id: null,
       usuario_nombre: null,
+      remitente_externo: null,
+      remitente_verificado: null,
       created_at: diasAtras(4),
     },
     {
@@ -385,6 +399,8 @@ export function makeSeed(): {
       detalle: "Llamé al proveedor, confirma entrega la próxima semana.",
       usuario_id: PERFIL_DEMO.id,
       usuario_nombre: PERFIL_DEMO.nombre,
+      remitente_externo: null,
+      remitente_verificado: null,
       created_at: diasAtras(1),
     },
   ];
@@ -578,5 +594,6 @@ export function makeSeed(): {
     convenios,
     solicitudes_compra,
     casos_compra_eventos,
+    casos_venta_eventos: [],
   };
 }

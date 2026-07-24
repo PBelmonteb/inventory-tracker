@@ -133,7 +133,11 @@ export function CasoDetalleModal({
           </div>
         )}
 
-        <CasoTimeline casoId={caso.id} eventos={eventos} />
+        <CasoTimeline
+          casoId={caso.id}
+          eventos={eventos}
+          onNotaAgregada={() => obtenerEventosCaso(caso.id).then(setEventos)}
+        />
 
         <div className="flex justify-end pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>

@@ -6,7 +6,14 @@ import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
 import { getCurrentProfile } from "@/lib/auth";
-import { ESTADOS_CASO_VENTA, type EstadoCasoVenta } from "@/lib/types";
+import { registrarEventoCasoVenta } from "@/lib/eventos-caso";
+import { getEventosCasoVenta } from "@/lib/data";
+import {
+  ESTADOS_CASO_VENTA,
+  type CasoVentaEvento,
+  type EstadoCasoVenta,
+  type UsuarioActor,
+} from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -52,12 +59,16 @@ export async function crearCasoVenta(
       error: "Agrega al menos un material con cantidad mayor a cero",
     };
 
+  const yo = await getCurrentProfile();
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
   if (DEMO) {
     try {
-      store.crearCasoVenta(
+      const caso = store.crearCasoVenta(
         { cliente_id, titulo, descripcion, monto, referencia, responsable_id },
         items
       );
+      store.registrarEventoCasoVenta(caso.id, "creado", null, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -73,13 +84,20 @@ export async function crearCasoVenta(
       .from("casos_venta_items")
       .insert(items.map((it) => ({ ...it, caso_venta_id: data.id })));
     if (errItems) return { ok: false, error: mensajeSupabase(errItems) };
+    await registrarEventoCasoVenta(supabase, data.id, "creado", null, actor);
     if (responsable_id) {
-      const yo = await getCurrentProfile();
       await supabase.rpc("asignar_responsable_caso_venta", {
         p_caso: data.id,
         p_usuario: responsable_id,
-        p_asignado_por: yo?.nombre ?? null,
+        p_asignado_por: actor.nombre,
       });
+      await registrarEventoCasoVenta(
+        supabase,
+        data.id,
+        "responsable_asignado",
+        "Responsable asignado",
+        actor
+      );
     }
   }
 
@@ -94,10 +112,13 @@ export async function asignarResponsableCasoVenta(
 ): Promise<ActionResult> {
   const yo = await getCurrentProfile();
   if (!yo) return { ok: false, error: "No autenticado" };
+  const actor: UsuarioActor = { id: yo.id, nombre: yo.nombre };
+  const detalleEvento = usuarioId ? "Responsable asignado" : "Responsable removido";
 
   if (DEMO) {
     try {
       store.asignarResponsableCasoVenta(casoId, usuarioId || null, yo.nombre);
+      store.registrarEventoCasoVenta(casoId, "responsable_asignado", detalleEvento, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -109,6 +130,7 @@ export async function asignarResponsableCasoVenta(
       p_asignado_por: yo.nombre,
     });
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCasoVenta(supabase, casoId, "responsable_asignado", detalleEvento, actor);
   }
 
   revalidatePath("/clientes");
@@ -149,10 +171,12 @@ export async function cambiarEstadoCasoVenta(
 ): Promise<ActionResult> {
   if (!ESTADOS_CASO_VENTA.includes(estado))
     return { ok: false, error: "Estado inválido" };
+  const yo = await getCurrentProfile();
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
     try {
-      store.cambiarEstadoCasoVenta(id, estado);
+      store.cambiarEstadoCasoVenta(id, estado, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -160,11 +184,23 @@ export async function cambiarEstadoCasoVenta(
     // RPC autoritaria: valida disponible al comprometer (anti-sobreventa);
     // el trigger de la BD crea/cancela las salidas pendientes.
     const supabase = await createClient();
+    const { data: actual } = await supabase
+      .from("casos_venta")
+      .select("estado")
+      .eq("id", id)
+      .single();
     const { error } = await supabase.rpc("cambiar_estado_caso_venta", {
       p_caso: id,
       p_estado: estado,
     });
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCasoVenta(
+      supabase,
+      id,
+      "estado_cambiado",
+      `${actual?.estado ?? "?"} → ${estado}`,
+      actor
+    );
   }
 
   revalidatePath("/clientes");
@@ -181,21 +217,40 @@ export async function confirmarSalidaPendiente(
 ): Promise<ActionResult> {
   if (cantidad !== undefined && (!Number.isFinite(cantidad) || cantidad <= 0))
     return { ok: false, error: "La cantidad debe ser mayor a cero" };
+  const yo = await getCurrentProfile();
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
     try {
-      store.confirmarSalidaPendiente(id, cantidad);
+      store.confirmarSalidaPendiente(id, cantidad, actor);
     } catch (err) {
       // Aquí llega "Stock insuficiente: ..." para mostrarse en la fila.
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
   } else {
     const supabase = await createClient();
+    const { data: sp } = await supabase
+      .from("salidas_pendientes")
+      .select("caso_venta_id, cantidad, materiales(nombre, unidad)")
+      .eq("id", id)
+      .single();
     const { error } = await supabase.rpc("confirmar_salida_pendiente", {
       p_id: id,
       p_cantidad: cantidad ?? null,
     });
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    if (sp?.caso_venta_id) {
+      const aConfirmar = cantidad ?? sp.cantidad;
+      const restante = sp.cantidad - aConfirmar;
+      const material = sp.materiales as unknown as { nombre: string; unidad: string } | null;
+      await registrarEventoCasoVenta(
+        supabase,
+        sp.caso_venta_id,
+        "estado_cambiado",
+        `Entrega confirmada: ${aConfirmar} ${material?.unidad ?? ""} de ${material?.nombre ?? "material"}${restante > 0 ? ` (quedan ${restante} pendientes)` : ""}.`,
+        actor
+      );
+    }
   }
 
   revalidatePath("/clientes");
@@ -210,23 +265,75 @@ export async function confirmarSalidaPendiente(
 export async function cancelarSalidaPendiente(
   id: string
 ): Promise<ActionResult> {
+  const yo = await getCurrentProfile();
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
   if (DEMO) {
     try {
-      store.cancelarSalidaPendiente(id);
+      store.cancelarSalidaPendiente(id, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
   } else {
     const supabase = await createClient();
+    const { data: sp } = await supabase
+      .from("salidas_pendientes")
+      .select("caso_venta_id, cantidad, materiales(nombre, unidad)")
+      .eq("id", id)
+      .single();
     const { error } = await supabase
       .from("salidas_pendientes")
       .update({ estado: "cancelada", resuelta_at: new Date().toISOString() })
       .eq("id", id)
       .eq("estado", "pendiente");
     if (error) return { ok: false, error: mensajeSupabase(error) };
+    if (sp?.caso_venta_id) {
+      const material = sp.materiales as unknown as { nombre: string; unidad: string } | null;
+      await registrarEventoCasoVenta(
+        supabase,
+        sp.caso_venta_id,
+        "estado_cambiado",
+        `Entrega pendiente cancelada: ${sp.cantidad} ${material?.unidad ?? ""} de ${material?.nombre ?? "material"}.`,
+        actor
+      );
+    }
   }
 
   revalidatePath("/clientes");
   revalidatePath("/movimientos");
+  return { ok: true };
+}
+
+// Lectura de solo lectura, sin gate de rol — mismo criterio que
+// obtenerEventosCaso (lib/actions/solicitudes.ts) del lado de compras.
+export async function obtenerEventosCasoVenta(
+  casoId: string
+): Promise<CasoVentaEvento[]> {
+  return getEventosCasoVenta(casoId);
+}
+
+// Nota manual en el timeline de un caso de venta (estilo Chatter).
+export async function agregarNotaCasoVenta(
+  casoId: string,
+  texto: string
+): Promise<ActionResult> {
+  if (!casoId) return { ok: false, error: "Caso inválido" };
+  if (!texto.trim()) return { ok: false, error: "La nota no puede estar vacía" };
+
+  const yo = await getCurrentProfile();
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  if (DEMO) {
+    try {
+      store.agregarNotaCasoVenta(casoId, texto, actor);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    await registrarEventoCasoVenta(supabase, casoId, "nota", texto.trim(), actor);
+  }
+
+  revalidatePath("/clientes");
   return { ok: true };
 }

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { CasoVentaForm } from "@/components/caso-venta-form";
+import { CasoVentaDetalleModal } from "@/components/caso-venta-detalle-modal";
 import { ResponsableSelect } from "@/components/responsable-select";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
@@ -23,7 +25,7 @@ import type {
   EstadoCasoVenta,
   SalidaPendienteConRelaciones,
 } from "@/lib/types";
-import { PackageCheck, Plus, Trash2 } from "lucide-react";
+import { Eye, PackageCheck, Plus, Trash2 } from "lucide-react";
 
 type MaterialOpcion = {
   id: string;
@@ -52,17 +54,24 @@ export function ClientesView({
   salidasPendientes,
   materiales,
   usuarios,
+  verTodos,
 }: {
   clientes: Cliente[];
   casos: CasoVentaConRelaciones[];
   salidasPendientes: SalidaPendienteConRelaciones[];
   materiales: MaterialOpcion[];
   usuarios: UsuarioAsignable[];
+  // Por defecto la lista solo trae casos abiertos + cerrados de los
+  // últimos ~90 días (lib/data.ts) — este toggle pide todo el histórico.
+  verTodos: boolean;
 }) {
   const router = useRouter();
   const [formAbierto, setFormAbierto] = useState(false);
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
+  const [detalleCaso, setDetalleCaso] = useState<CasoVentaConRelaciones | null>(
+    null
+  );
   const [errorSalida, setErrorSalida] = useState<{
     id: string;
     mensaje: string;
@@ -216,7 +225,16 @@ export function ClientesView({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-fg">
-                      {sp.materiales?.nombre ?? "Material eliminado"}{" "}
+                      {sp.materiales ? (
+                        <Link
+                          href={`/materiales/${sp.materiales.id}`}
+                          className="hover:text-accent hover:underline"
+                        >
+                          {sp.materiales.nombre}
+                        </Link>
+                      ) : (
+                        "Material eliminado"
+                      )}{" "}
                       <span className="font-semibold text-accent">
                         × {formatQty(sp.cantidad, sp.materiales?.unidad)}
                       </span>
@@ -289,7 +307,20 @@ export function ClientesView({
       {/* Casos de venta */}
       <Card className="mb-6 p-4 md:p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-semibold text-fg">Casos de venta</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-semibold text-fg">Casos de venta</h2>
+            <Link
+              href={verTodos ? "/clientes" : "/clientes?todos=1"}
+              className="text-xs font-medium text-accent hover:underline"
+              title={
+                verTodos
+                  ? "Mostrando todo el histórico"
+                  : "Por defecto solo se muestran los casos abiertos y los cerrados de los últimos 90 días"
+              }
+            >
+              {verTodos ? "Ver solo recientes" : "Ver todos (histórico)"}
+            </Link>
+          </div>
           <div className="flex flex-wrap gap-2">
             <BotonExportarCSV
               filename="casos-venta"
@@ -343,7 +374,14 @@ export function ClientesView({
               >
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-fg">
-                    {c.titulo}
+                    <button
+                      type="button"
+                      onClick={() => setDetalleCaso(c)}
+                      title="Ver detalle y timeline"
+                      className="cursor-pointer text-left hover:text-accent hover:underline"
+                    >
+                      {c.titulo}
+                    </button>
                     {c.referencia && (
                       <span className="ml-2 text-xs font-normal text-faint">
                         {c.referencia}
@@ -370,6 +408,15 @@ export function ClientesView({
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDetalleCaso(c)}
+                    title="Ver detalle y timeline"
+                    aria-label="Ver detalle y timeline"
+                    className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </button>
                   <Badge tone={ESTADO_VENTA_META[c.estado].tone}>
                     {ESTADO_VENTA_META[c.estado].label}
                   </Badge>
@@ -403,7 +450,10 @@ export function ClientesView({
 
       {/* Clientes */}
       <div className="grid gap-4 md:grid-cols-2">
-        <ClientesCard clientes={clientes} />
+        <ClientesCard
+          clientes={clientes}
+          onSelectCliente={(id) => setFiltroCliente(id)}
+        />
       </div>
 
       <CasoVentaForm
@@ -413,11 +463,22 @@ export function ClientesView({
         materiales={materiales}
         usuarios={usuarios}
       />
+      <CasoVentaDetalleModal
+        open={!!detalleCaso}
+        onClose={() => setDetalleCaso(null)}
+        caso={detalleCaso}
+      />
     </div>
   );
 }
 
-function ClientesCard({ clientes }: { clientes: Cliente[] }) {
+function ClientesCard({
+  clientes,
+  onSelectCliente,
+}: {
+  clientes: Cliente[];
+  onSelectCliente: (id: string) => void;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -467,10 +528,15 @@ function ClientesCard({ clientes }: { clientes: Cliente[] }) {
         )}
         {clientes.map((c) => (
           <li key={c.id} className="flex items-center justify-between py-2">
-            <div>
-              <p className="text-sm text-fg">{c.nombre}</p>
+            <button
+              type="button"
+              onClick={() => onSelectCliente(c.id)}
+              title="Ver casos de venta de este cliente"
+              className="cursor-pointer text-left hover:text-accent"
+            >
+              <p className="text-sm text-fg hover:underline">{c.nombre}</p>
               {c.contacto && <p className="text-xs text-faint">{c.contacto}</p>}
-            </div>
+            </button>
             <button
               onClick={() => borrar(c.id)}
               aria-label="Eliminar"

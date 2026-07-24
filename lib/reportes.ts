@@ -39,16 +39,25 @@ export async function getReportes(): Promise<Reportes> {
     getStockPorUbicacionTodos(),
   ]);
 
-  // Última salida por material.
+  // Última salida por material — solo importa si fue hace menos de
+  // DIAS_PARADO (o no); una vez que pasó ese umbral da igual qué tan viejo
+  // sea, así que basta con mirar una ventana (con margen) en vez de traer
+  // el historial completo de salidas, que en una app de "muchas
+  // transacciones" solo crece con el tiempo.
+  const VENTANA_ULTIMA_SALIDA_DIAS = DIAS_PARADO + 30;
   let salidas: { material_id: string; created_at: string }[] | null;
   if (DEMO) {
     salidas = store.getSalidas();
   } else {
     const supabase = await createClient();
+    const desde = new Date(
+      Date.now() - VENTANA_ULTIMA_SALIDA_DIAS * 86400000
+    ).toISOString();
     const { data } = await supabase
       .from("movimientos")
       .select("material_id, created_at")
       .eq("tipo", "salida")
+      .gte("created_at", desde)
       .order("created_at", { ascending: false });
     salidas = data;
   }

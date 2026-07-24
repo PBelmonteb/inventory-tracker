@@ -3,11 +3,13 @@ import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
 import { calcularStockSugerido, type StockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ, type ResultadoEOQ } from "@/lib/eoq";
+import { nivelStock } from "@/lib/utils";
 import type {
   Auditoria,
   BomItemConMaterial,
   CasoCompraConRelaciones,
   CasoCompraEvento,
+  CasoVentaEvento,
   CasoVentaConRelaciones,
   Categoria,
   Cliente,
@@ -17,6 +19,7 @@ import type {
   MovimientoConRelaciones,
   NotificacionConRelaciones,
   ProducibleConReceta,
+  ProductoQueUsa,
   Proveedor,
   SalidaPendienteConRelaciones,
   SolicitudCompra,
@@ -27,6 +30,14 @@ import type {
 
 const MATERIAL_SELECT =
   "*, categorias(id,nombre), ubicaciones(id,nombre), proveedores(id,nombre)";
+
+// Orden de urgencia para listas de producibles (getProducibles): lo más
+// crítico primero, para que el piso no tenga que escanear toda la lista.
+const NIVEL_RANK: Record<"bajo" | "aviso" | "ok", number> = {
+  bajo: 0,
+  aviso: 1,
+  ok: 2,
+};
 
 export async function getMateriales(): Promise<MaterialConRelaciones[]> {
   if (DEMO) return store.getMateriales();
@@ -149,6 +160,26 @@ export async function getBom(materialId: string): Promise<BomItemConMaterial[]> 
   return (data as unknown as BomItemConMaterial[]) ?? [];
 }
 
+// Lookup inverso de getBom: qué producibles usan ESTE material como
+// componente — para el material de un componente (ej. un perfil de
+// aluminio bajo de stock), poder ir directo a "qué debo producir" en vez de
+// tener que recordar/buscar manualmente qué lo usa.
+export async function getProductosQueUsan(
+  materialId: string
+): Promise<ProductoQueUsa[]> {
+  if (DEMO) return store.getProductosQueUsan(materialId);
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("bom_items")
+    .select("materiales!bom_items_producto_id_fkey(id,nombre,sku,activo)")
+    .eq("componente_id", materialId);
+  type Fila = { materiales: { id: string; nombre: string; sku: string | null; activo: boolean } | null };
+  return ((data as unknown as Fila[]) ?? [])
+    .map((r) => r.materiales)
+    .filter((m): m is NonNullable<typeof m> => !!m && m.activo)
+    .map((m) => ({ id: m.id, nombre: m.nombre, sku: m.sku }));
+}
+
 // Materiales que tienen al menos una receta configurada (para /produccion).
 // Dos consultas simples en vez de un embed anidado de dos niveles.
 export async function getProducibles(): Promise<ProducibleConReceta[]> {
@@ -185,7 +216,8 @@ export async function getProducibles(): Promise<ProducibleConReceta[]> {
     .map((id) => ({
       producto: porId.get(id)!,
       receta: recetaPorProducto.get(id) ?? [],
-    }));
+    }))
+    .sort((a, b) => NIVEL_RANK[nivelStock(a.producto)] - NIVEL_RANK[nivelStock(b.producto)]);
 }
 
 // Desglose por ubicación de TODOS los materiales activos (para el reporte
@@ -232,15 +264,24 @@ export async function getStockPorUbicacionTodos(): Promise<
 }
 
 // Historial de costo/venta de TODOS los materiales (para comparar varios en
-// una sola gráfica en Reportes).
+// una sola gráfica en Reportes). Sin límite, esta tabla crece con cada
+// compra/cambio de precio de TODOS los materiales — en una app de "muchas
+// transacciones" terminaría mandando miles de puntos a una sola gráfica.
+// Se acota a los más recientes (siguen siendo los relevantes para comparar
+// tendencias) en vez de traer el historial completo desde el origen.
+const LIMITE_HISTORIAL_PRECIOS_TODOS = 3000;
+
 export async function getHistorialPreciosTodos(): Promise<HistorialPrecio[]> {
   if (DEMO) return store.getHistorialPreciosTodos();
   const supabase = await createClient();
   const { data } = await supabase
     .from("historial_precios")
     .select("*")
-    .order("created_at", { ascending: true });
-  return (data as HistorialPrecio[]) ?? [];
+    .order("created_at", { ascending: false })
+    .limit(LIMITE_HISTORIAL_PRECIOS_TODOS);
+  // La gráfica espera orden cronológico ascendente; se pidió DESC para
+  // quedarse con los N más recientes y aquí se revierte.
+  return ((data as HistorialPrecio[]) ?? []).reverse();
 }
 
 // Punto de reorden sugerido para "stock mínimo", calculado del historial
@@ -410,18 +451,45 @@ export async function getNotificaciones(): Promise<
   return (data as NotificacionConRelaciones[]) ?? [];
 }
 
-export async function getCasosCompra(): Promise<CasoCompraConRelaciones[]> {
-  if (DEMO) return store.getCasosCompra();
+// Por defecto, las listas de casos (compra/venta) y salidas pendientes solo
+// traen lo abierto + lo cerrado reciente — no TODO el histórico desde el
+// origen. En una app de "muchas transacciones" esa tabla solo crece, y sin
+// esto cada carga de /proveedores o /clientes se pondría más lenta con el
+// tiempo. `todos: true` quita el filtro (link "Ver todos" en la UI).
+const DIAS_HISTORICO_DEFECTO = 90;
+const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "ordenado"];
+const CASO_VENTA_ABIERTO = ["cotizacion", "confirmado", "en_produccion"];
+
+function fechaCorteHistorico(): string {
+  return new Date(Date.now() - DIAS_HISTORICO_DEFECTO * 86400000).toISOString();
+}
+
+export async function getCasosCompra(
+  opts: { todos?: boolean } = {}
+): Promise<CasoCompraConRelaciones[]> {
+  if (DEMO) {
+    const casos = store.getCasosCompra();
+    if (opts.todos) return casos;
+    const corte = fechaCorteHistorico();
+    return casos.filter(
+      (c) => CASO_COMPRA_ABIERTO.includes(c.estado) || c.updated_at >= corte
+    );
+  }
   const supabase = await createClient();
   // El nombre del FK es obligatorio aquí: casos_compra <-> solicitudes_compra
   // tiene DOS relaciones (solicitud_id, y la inversa cotizacion_ganadora_id),
   // así que PostgREST no puede adivinar cuál embeber sin que se lo digamos.
-  const { data, error } = await supabase
+  let query = supabase
     .from("casos_compra")
     .select(
       "*, proveedores(id,nombre), materiales(id,nombre,sku), solicitudes_compra!casos_compra_solicitud_id_fkey(codigo)"
-    )
-    .order("updated_at", { ascending: false });
+    );
+  if (!opts.todos) {
+    query = query.or(
+      `estado.in.(${CASO_COMPRA_ABIERTO.join(",")}),updated_at.gte.${fechaCorteHistorico()}`
+    );
+  }
+  const { data, error } = await query.order("updated_at", { ascending: false });
   if (error) console.error("getCasosCompra:", error.message);
   return (data as CasoCompraConRelaciones[]) ?? [];
 }
@@ -478,29 +546,66 @@ export async function getClientes(): Promise<Cliente[]> {
   return (data as Cliente[]) ?? [];
 }
 
-export async function getCasosVenta(): Promise<CasoVentaConRelaciones[]> {
-  if (DEMO) return store.getCasosVenta();
+export async function getCasosVenta(
+  opts: { todos?: boolean } = {}
+): Promise<CasoVentaConRelaciones[]> {
+  if (DEMO) {
+    const casos = store.getCasosVenta();
+    if (opts.todos) return casos;
+    const corte = fechaCorteHistorico();
+    return casos.filter(
+      (c) => CASO_VENTA_ABIERTO.includes(c.estado) || c.updated_at >= corte
+    );
+  }
   const supabase = await createClient();
-  const { data } = await supabase
+  let query = supabase
     .from("casos_venta")
     .select(
       "*, clientes(id,nombre), items:casos_venta_items(*, materiales(id,nombre,sku,unidad,stock_actual))"
-    )
-    .order("updated_at", { ascending: false });
+    );
+  if (!opts.todos) {
+    query = query.or(
+      `estado.in.(${CASO_VENTA_ABIERTO.join(",")}),updated_at.gte.${fechaCorteHistorico()}`
+    );
+  }
+  const { data } = await query.order("updated_at", { ascending: false });
   return (data as CasoVentaConRelaciones[]) ?? [];
 }
 
-export async function getSalidasPendientes(): Promise<
-  SalidaPendienteConRelaciones[]
-> {
-  if (DEMO) return store.getSalidasPendientes();
+// Timeline de un caso de venta (components/caso-venta-timeline.tsx) — mismo
+// patrón que getEventosCaso, tabla propia (casos_venta_eventos).
+export async function getEventosCasoVenta(
+  casoId: string
+): Promise<CasoVentaEvento[]> {
+  if (DEMO) return store.getEventosCasoVenta(casoId);
   const supabase = await createClient();
   const { data } = await supabase
+    .from("casos_venta_eventos")
+    .select("*")
+    .eq("caso_venta_id", casoId)
+    .order("created_at", { ascending: true });
+  return (data as CasoVentaEvento[]) ?? [];
+}
+
+export async function getSalidasPendientes(
+  opts: { todos?: boolean } = {}
+): Promise<SalidaPendienteConRelaciones[]> {
+  if (DEMO) {
+    const salidas = store.getSalidasPendientes();
+    if (opts.todos) return salidas;
+    const corte = fechaCorteHistorico();
+    return salidas.filter((s) => s.estado === "pendiente" || s.created_at >= corte);
+  }
+  const supabase = await createClient();
+  let query = supabase
     .from("salidas_pendientes")
     .select(
       "*, materiales(id,nombre,sku,unidad,stock_actual), casos_venta(id,titulo,referencia, clientes(nombre))"
-    )
-    .order("created_at", { ascending: false });
+    );
+  if (!opts.todos) {
+    query = query.or(`estado.eq.pendiente,created_at.gte.${fechaCorteHistorico()}`);
+  }
+  const { data } = await query.order("created_at", { ascending: false });
   type Fila = SalidaPendienteConRelaciones & {
     casos_venta:
       | (NonNullable<SalidaPendienteConRelaciones["casos_venta"]> & {

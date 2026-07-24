@@ -10,6 +10,7 @@ import type {
   CasoCompra,
   CasoCompraConRelaciones,
   CasoCompraEvento,
+  CasoVentaEvento,
   CasoVenta,
   CasoVentaConRelaciones,
   CasoVentaItem,
@@ -31,6 +32,7 @@ import type {
   Profile,
   Proveedor,
   ProducibleConReceta,
+  ProductoQueUsa,
   SalidaPendiente,
   SalidaPendienteConRelaciones,
   SolicitudCompra,
@@ -43,10 +45,10 @@ import type {
 } from "@/lib/types";
 import { makeSeed, PERFIL_DEMO } from "@/lib/mock/seed-data";
 import { esGestor } from "@/lib/auth";
-import { puntoAviso } from "@/lib/utils";
+import { nivelStock, puntoAviso } from "@/lib/utils";
 import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
-import { evaluarRiesgoStock } from "@/lib/riesgo-stock";
+import { evaluarRiesgoStock, type RiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
 import { construirCorreoOrdenConvenio } from "@/lib/plantillas-correo";
 import { formatearCorreoEvento } from "@/lib/email-caso";
@@ -84,6 +86,7 @@ interface DB {
   solicitudes_compra: SolicitudCompra[];
   // Timeline por caso (estilo Salesforce).
   casos_compra_eventos: CasoCompraEvento[];
+  casos_venta_eventos: CasoVentaEvento[];
 }
 
 const g = globalThis as unknown as { __inventarioDemoDB?: DB };
@@ -194,6 +197,8 @@ if (!g.__inventarioDemoDB) {
   for (const c of viejo.casos_compra) {
     if (c.solicitud_id === undefined) c.solicitud_id = null;
   }
+  // Timeline de casos de venta (feature posterior).
+  if (!viejo.casos_venta_eventos) viejo.casos_venta_eventos = [];
 }
 const db: DB = g.__inventarioDemoDB;
 
@@ -204,6 +209,13 @@ const CASO_COMPRA_ABIERTO: EstadoCasoCompra[] = [
   "cotizando",
   "ordenado",
 ];
+
+// Orden de urgencia para /produccion (getProducibles): lo más crítico primero.
+const NIVEL_RANK: Record<"bajo" | "aviso" | "ok", number> = {
+  bajo: 0,
+  aviso: 1,
+  ok: 2,
+};
 
 const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -644,7 +656,24 @@ export const store = {
       .map((m) => ({
         producto: conRelaciones(m),
         receta: store.getBom(m.id),
-      }));
+      }))
+      .sort((a, b) => NIVEL_RANK[nivelStock(a.producto)] - NIVEL_RANK[nivelStock(b.producto)]);
+  },
+
+  // Lookup inverso de getBom: qué producibles usan ESTE material como
+  // componente (material-detail.tsx — "Se usa en").
+  getProductosQueUsan(componente_id: string): ProductoQueUsa[] {
+    const productoIds = [
+      ...new Set(
+        db.bom_items
+          .filter((b) => b.componente_id === componente_id)
+          .map((b) => b.producto_id)
+      ),
+    ];
+    return productoIds
+      .map((id) => db.materiales.find((m) => m.id === id))
+      .filter((m): m is Material => !!m && m.activo)
+      .map((m) => ({ id: m.id, nombre: m.nombre, sku: m.sku }));
   },
 
   // Consume los componentes de la receta y genera el producto terminado.
@@ -1206,20 +1235,40 @@ export const store = {
           ? calcularEOQ({ salidas, costoUnitario: m.costo_unitario })
           : null;
       const proveedor = db.proveedores.find((p) => p.id === proveedorId);
-      const convenio = db.convenios.find(
-        (c) => c.proveedor_id === proveedorId && c.material_id === m.id && esConvenioVigente(c)
+      // Todos los convenios vigentes de este material (cualquier
+      // proveedor) — de aquí sale el fan-out a varias cotizaciones cuando
+      // hay más de uno, igual que lib/casos-automaticos.ts (Supabase real).
+      const conveniosDelMaterial = db.convenios.filter(
+        (c) => c.material_id === m.id && esConvenioVigente(c)
+      );
+      // Para decidir SI y QUÉ TAN URGENTE reponer, se usa el convenio del
+      // proveedor asignado por defecto al material — no depende de cuántos
+      // proveedores alternativos existan.
+      const convenioDefault = conveniosDelMaterial.find(
+        (c) => c.proveedor_id === proveedorId
       );
 
       const riesgo = evaluarRiesgoStock({
         stockActual: m.stock_actual,
         stockMinimo: m.stock_minimo,
         proveedorDiasEntrega:
-          convenio?.dias_entrega_pactado ?? proveedor?.dias_entrega_declarado ?? null,
+          convenioDefault?.dias_entrega_pactado ?? proveedor?.dias_entrega_declarado ?? null,
         stockSugerido,
         eoq,
       });
       if (!riesgo.debeCrearCaso) continue;
 
+      if (conveniosDelMaterial.length > 1) {
+        casosCreados += store.crearSolicitudComparativaAutomatica(m, conveniosDelMaterial, riesgo);
+        continue;
+      }
+
+      // 0 o 1 convenio: un caso suelto, como siempre. Si hay exactamente
+      // uno (aunque no sea el del proveedor asignado por defecto), se usa
+      // su precio/condiciones — sigue siendo la única opción pactada.
+      const convenio = conveniosDelMaterial[0];
+      const proveedorIdReal = convenio?.proveedor_id ?? proveedorId;
+      const proveedorReal = db.proveedores.find((p) => p.id === proveedorIdReal) ?? proveedor;
       const referencia = `OC-${Date.now().toString().slice(-6)}`;
       const cantidad = Math.max(riesgo.cantidadSugerida, convenio?.cantidad_minima ?? 0);
       const precioUnitario = convenio?.precio_pactado ?? m.costo_unitario;
@@ -1227,7 +1276,7 @@ export const store = {
         ? ` Precio según convenio vigente: $${convenio.precio_pactado.toFixed(2)}/unidad.`
         : "";
       const caso = store.crearCasoCompra({
-        proveedor_id: proveedorId,
+        proveedor_id: proveedorIdReal,
         material_id: m.id,
         titulo: `Reposición automática: ${m.nombre}`,
         descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${m.unidad}.${notaConvenio}`,
@@ -1245,6 +1294,114 @@ export const store = {
       // "Simular correo" para el webhook entrante) — deja probar el flujo
       // completo sin depender de credenciales reales.
       if (convenio?.auto_enviar) {
+        if (!proveedorReal?.contacto) {
+          caso.descripcion = `${caso.descripcion} Envío automático configurado pero el proveedor no tiene correo registrado.`;
+        } else {
+          caso.estado = "ordenado";
+          caso.correo_enviado_at = new Date().toISOString();
+          caso.descripcion = `${caso.descripcion} Orden confirmada y enviada automáticamente por convenio (simulado en modo demo).`;
+          const correo = construirCorreoOrdenConvenio({
+            material: { nombre: m.nombre, sku: m.sku, unidad: m.unidad },
+            proveedorNombre: proveedorReal.nombre,
+            cantidad,
+            precioUnitario,
+            condicionesPago: convenio.condiciones_pago,
+            diasEntregaPactado: convenio.dias_entrega_pactado,
+            referencia,
+          });
+          store.registrarEventoCaso(
+            caso.id,
+            "correo_enviado",
+            formatearCorreoEvento(correo.asunto, correo.cuerpo),
+            { id: null, nombre: null }
+          );
+        }
+      }
+
+      store.atenderNotificacionesDeMaterial(m.id, caso.id);
+      db.notificaciones.push({
+        id: uid(),
+        material_id: m.id,
+        proveedor_id: proveedorIdReal,
+        mensaje: `Se generó automáticamente el caso ${referencia} para reponer ${m.nombre} (riesgo ${riesgo.nivelRiesgo}). Revisa y asigna un responsable.`,
+        estado: "abierta",
+        nivel: riesgo.nivelRiesgo === "medio" ? "aviso" : "bajo",
+        tipo: "stock",
+        usuario_id: null,
+        caso_compra_id: caso.id,
+        caso_venta_id: null,
+        salida_pendiente_id: null,
+        created_at: new Date().toISOString(),
+        resuelta_at: null,
+      });
+      casosCreados++;
+    }
+
+    return { materialesRevisados: candidatos.length, casosCreados };
+  },
+
+  // Fan-out (espejo de crearSolicitudComparativa en lib/casos-automaticos.ts):
+  // un material con convenios vigentes de varios proveedores → una
+  // solicitud_compra + una cotización por convenio, en vez de un solo caso.
+  crearSolicitudComparativaAutomatica(
+    m: Material,
+    convenios: Convenio[],
+    riesgo: RiesgoStock
+  ): number {
+    const codigo = `SOL-${Date.now().toString().slice(-6)}`;
+    const now = new Date().toISOString();
+    const solicitud: SolicitudCompra = {
+      id: uid(),
+      codigo,
+      material_id: m.id,
+      material_nombre: m.nombre,
+      titulo: `Reposición automática: ${m.nombre}`,
+      estado: "abierta",
+      responsable_id: null,
+      responsable_nombre: null,
+      cotizacion_ganadora_id: null,
+      created_at: now,
+      updated_at: now,
+    };
+    db.solicitudes_compra.push(solicitud);
+
+    let creados = 0;
+    let i = 0;
+    for (const convenio of convenios) {
+      const proveedor = db.proveedores.find((p) => p.id === convenio.proveedor_id);
+      const cantidad = Math.max(riesgo.cantidadSugerida, convenio.cantidad_minima ?? 0);
+      const precioUnitario = convenio.precio_pactado;
+      const referencia = `OC-${Date.now().toString().slice(-6)}-${i}`;
+      i++;
+      const descripcionBase = `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${m.unidad}. Precio según convenio vigente: $${precioUnitario.toFixed(2)}/unidad. Cotización comparativa de la solicitud ${solicitud.codigo}.`;
+
+      let caso: CasoCompra;
+      try {
+        caso = store.crearCasoCompra({
+          proveedor_id: convenio.proveedor_id,
+          material_id: m.id,
+          titulo: `Reposición automática: ${m.nombre}`,
+          descripcion: descripcionBase,
+          monto_estimado: precioUnitario * cantidad,
+          referencia,
+          origen: "stock_bajo",
+          solicitud_id: solicitud.id,
+        });
+      } catch {
+        continue;
+      }
+      caso.nivel_riesgo = riesgo.nivelRiesgo;
+      caso.dias_cobertura_restante = riesgo.diasCobertura;
+      caso.lead_time_dias_usado = riesgo.leadTimeUsado;
+      creados++;
+      store.registrarEventoCaso(
+        caso.id,
+        "creado",
+        `Cotización comparativa de la solicitud ${solicitud.codigo}.`,
+        { id: null, nombre: null }
+      );
+
+      if (convenio.auto_enviar) {
         if (!proveedor?.contacto) {
           caso.descripcion = `${caso.descripcion} Envío automático configurado pero el proveedor no tiene correo registrado.`;
         } else {
@@ -1268,27 +1425,27 @@ export const store = {
           );
         }
       }
+    }
 
-      store.atenderNotificacionesDeMaterial(m.id, caso.id);
+    if (creados > 0) {
+      store.atenderNotificacionesDeMaterial(m.id);
       db.notificaciones.push({
         id: uid(),
         material_id: m.id,
-        proveedor_id: proveedorId,
-        mensaje: `Se generó automáticamente el caso ${referencia} para reponer ${m.nombre} (riesgo ${riesgo.nivelRiesgo}). Revisa y asigna un responsable.`,
+        proveedor_id: m.proveedor_id,
+        mensaje: `Se generó automáticamente la solicitud ${solicitud.codigo} para reponer ${m.nombre} — se pidió cotización a ${creados} proveedores con convenio. Revisa y elige la mejor opción.`,
         estado: "abierta",
         nivel: riesgo.nivelRiesgo === "medio" ? "aviso" : "bajo",
         tipo: "stock",
         usuario_id: null,
-        caso_compra_id: caso.id,
+        caso_compra_id: null,
         caso_venta_id: null,
         salida_pendiente_id: null,
         created_at: new Date().toISOString(),
         resuelta_at: null,
       });
-      casosCreados++;
     }
-
-    return { materialesRevisados: candidatos.length, casosCreados };
+    return creados;
   },
 
   /* ---------------- Convenios con proveedores ---------------- */
@@ -1412,7 +1569,8 @@ export const store = {
     casoId: string,
     tipo: TipoEventoCaso,
     detalle: string | null = null,
-    usuario: { id: string | null; nombre: string | null } = { id: null, nombre: null }
+    usuario: { id: string | null; nombre: string | null } = { id: null, nombre: null },
+    meta?: { remitenteExterno?: boolean; remitenteVerificado?: boolean }
   ): void {
     db.casos_compra_eventos.push({
       id: uid(),
@@ -1421,6 +1579,8 @@ export const store = {
       detalle,
       usuario_id: usuario.id,
       usuario_nombre: usuario.nombre,
+      remitente_externo: meta?.remitenteExterno ?? null,
+      remitente_verificado: meta?.remitenteVerificado ?? null,
       created_at: new Date().toISOString(),
     });
   },
@@ -1429,6 +1589,40 @@ export const store = {
     return db.casos_compra_eventos
       .filter((e) => e.caso_compra_id === casoId)
       .sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  },
+
+  // Gemelo para casos de venta (tabla propia en memoria: casos_venta_eventos).
+  registrarEventoCasoVenta(
+    casoId: string,
+    tipo: TipoEventoCaso,
+    detalle: string | null = null,
+    usuario: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    db.casos_venta_eventos.push({
+      id: uid(),
+      caso_venta_id: casoId,
+      tipo,
+      detalle,
+      usuario_id: usuario.id,
+      usuario_nombre: usuario.nombre,
+      created_at: new Date().toISOString(),
+    });
+  },
+
+  getEventosCasoVenta(casoId: string): CasoVentaEvento[] {
+    return db.casos_venta_eventos
+      .filter((e) => e.caso_venta_id === casoId)
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  },
+
+  agregarNotaCasoVenta(
+    casoId: string,
+    texto: string,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    if (!db.casos_venta.some((c) => c.id === casoId))
+      throw new Error("Caso de venta no encontrado");
+    store.registrarEventoCasoVenta(casoId, "nota", texto.trim(), actor);
   },
 
   /* ---------------- Solicitudes de compra (comparar proveedores) ---------------- */
@@ -1725,9 +1919,14 @@ export const store = {
     }
   },
 
-  cambiarEstadoCasoVenta(id: string, estado: EstadoCasoVenta): void {
+  cambiarEstadoCasoVenta(
+    id: string,
+    estado: EstadoCasoVenta,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
     const c = db.casos_venta.find((x) => x.id === id);
     if (!c) throw new Error("Caso de venta no encontrado");
+    const anterior = c.estado;
     const now = new Date().toISOString();
 
     // Anti-sobreventa: al comprometer, valida disponible por material.
@@ -1767,6 +1966,7 @@ export const store = {
 
     c.estado = estado;
     c.updated_at = now;
+    store.registrarEventoCasoVenta(c.id, "estado_cambiado", `${anterior} → ${estado}`, actor);
 
     if (estado === "entregado") {
       // Solo si el caso nunca generó pendientes: re-entregar tras cancelar
@@ -1845,7 +2045,11 @@ export const store = {
   // como antes. Si es menor, confirma solo esa parte y la salida sigue
   // "pendiente" con el restante — permite entregas parciales en vez de
   // forzar todo-o-nada.
-  confirmarSalidaPendiente(id: string, cantidad?: number): void {
+  confirmarSalidaPendiente(
+    id: string,
+    cantidad?: number,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
     const sp = db.salidas_pendientes.find((x) => x.id === id);
     if (!sp) throw new Error("Salida pendiente no encontrada");
     if (sp.estado !== "pendiente")
@@ -1856,6 +2060,7 @@ export const store = {
     if (aConfirmar > sp.cantidad)
       throw new Error(`No puede confirmar más de lo pendiente (${sp.cantidad})`);
     const caso = db.casos_venta.find((x) => x.id === sp.caso_venta_id);
+    const material = db.materiales.find((x) => x.id === sp.material_id);
     // aplicarMovimiento valida stock insuficiente y lanza el error hacia la UI.
     const mov = store.aplicarMovimiento(sp.material_id, "salida", aConfirmar, {
       nota: `Entrega: ${caso?.titulo ?? "caso de venta"}`,
@@ -1869,15 +2074,36 @@ export const store = {
       sp.movimiento_id = mov.id;
       sp.resuelta_at = new Date().toISOString();
     }
+    if (caso) {
+      store.registrarEventoCasoVenta(
+        caso.id,
+        "estado_cambiado",
+        `Entrega confirmada: ${aConfirmar} ${material?.unidad ?? ""} de ${material?.nombre ?? "material"}${restante > 0 ? ` (quedan ${restante} pendientes)` : ""}.`,
+        actor
+      );
+    }
   },
 
-  cancelarSalidaPendiente(id: string): void {
+  cancelarSalidaPendiente(
+    id: string,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
     const sp = db.salidas_pendientes.find((x) => x.id === id);
     if (!sp) throw new Error("Salida pendiente no encontrada");
     if (sp.estado !== "pendiente")
       throw new Error("Esta salida ya fue resuelta");
     sp.estado = "cancelada";
     sp.resuelta_at = new Date().toISOString();
+    const caso = db.casos_venta.find((x) => x.id === sp.caso_venta_id);
+    const material = db.materiales.find((x) => x.id === sp.material_id);
+    if (caso) {
+      store.registrarEventoCasoVenta(
+        caso.id,
+        "estado_cambiado",
+        `Entrega pendiente cancelada: ${sp.cantidad} ${material?.unidad ?? ""} de ${material?.nombre ?? "material"}.`,
+        actor
+      );
+    }
   },
 
   // Asigna (o quita) el responsable de completar una salida pendiente;

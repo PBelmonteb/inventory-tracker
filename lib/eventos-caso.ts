@@ -9,15 +9,38 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TipoEventoCaso, UsuarioActor } from "@/lib/types";
 
+// meta: solo aplica a eventos de correo (correo_enviado/correo_recibido) —
+// ver app/api/email-caso/route.ts. Null/omitido en el resto de los eventos.
 export async function registrarEventoCaso(
+  supabase: SupabaseClient,
+  casoId: string,
+  tipo: TipoEventoCaso,
+  detalle: string | null = null,
+  usuario: UsuarioActor = { id: null, nombre: null },
+  meta?: { remitenteExterno?: boolean; remitenteVerificado?: boolean }
+): Promise<void> {
+  await supabase.from("casos_compra_eventos").insert({
+    caso_compra_id: casoId,
+    tipo,
+    detalle,
+    usuario_id: usuario.id,
+    usuario_nombre: usuario.nombre,
+    remitente_externo: meta?.remitenteExterno ?? null,
+    remitente_verificado: meta?.remitenteVerificado ?? null,
+  });
+}
+
+// Gemelo para casos de venta (tabla propia: casos_venta_eventos, migración
+// 0022) — mismo contrato, distinta FK.
+export async function registrarEventoCasoVenta(
   supabase: SupabaseClient,
   casoId: string,
   tipo: TipoEventoCaso,
   detalle: string | null = null,
   usuario: UsuarioActor = { id: null, nombre: null }
 ): Promise<void> {
-  await supabase.from("casos_compra_eventos").insert({
-    caso_compra_id: casoId,
+  await supabase.from("casos_venta_eventos").insert({
+    caso_venta_id: casoId,
     tipo,
     detalle,
     usuario_id: usuario.id,

@@ -87,6 +87,7 @@ export function ProveedoresView({
   materiales,
   materialesCompletos,
   usuarios,
+  verTodos,
 }: {
   notificaciones: NotificacionConRelaciones[];
   casos: CasoCompraConRelaciones[];
@@ -94,6 +95,9 @@ export function ProveedoresView({
   materiales: MaterialOpcion[];
   materialesCompletos: MaterialConRelaciones[];
   usuarios: UsuarioAsignable[];
+  // Por defecto la lista solo trae casos abiertos + cerrados de los
+  // últimos ~90 días (lib/data.ts) — este toggle pide todo el histórico.
+  verTodos: boolean;
 }) {
   const router = useRouter();
   const [formAbierto, setFormAbierto] = useState(false);
@@ -389,7 +393,20 @@ export function ProveedoresView({
       {/* Casos de compra */}
       <Card className="p-4 md:p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-semibold text-fg">Casos de compra</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-semibold text-fg">Casos de compra</h2>
+            <Link
+              href={verTodos ? "/proveedores" : "/proveedores?todos=1"}
+              className="text-xs font-medium text-accent hover:underline"
+              title={
+                verTodos
+                  ? "Mostrando todo el histórico"
+                  : "Por defecto solo se muestran los casos abiertos y los cerrados de los últimos 90 días"
+              }
+            >
+              {verTodos ? "Ver solo recientes" : "Ver todos (histórico)"}
+            </Link>
+          </div>
           <div className="flex flex-wrap gap-2">
             <BotonExportarCSV
               filename="casos-compra"

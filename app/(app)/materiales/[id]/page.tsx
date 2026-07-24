@@ -10,6 +10,7 @@ import {
   getMaterial,
   getMateriales,
   getMovimientosDeMaterial,
+  getProductosQueUsan,
   getProveedores,
   getStockPorUbicacion,
   getUbicaciones,
@@ -38,6 +39,7 @@ export default async function MaterialPage({
     bom,
     materiales,
     convenio,
+    usadoEn,
   ] = await Promise.all([
     getCurrentProfile(),
     getMovimientosDeMaterial(id),
@@ -52,6 +54,7 @@ export default async function MaterialPage({
     material.proveedor_id
       ? obtenerConvenioVigente(id, material.proveedor_id)
       : Promise.resolve(null),
+    getProductosQueUsan(id),
   ]);
 
   return (
@@ -68,6 +71,7 @@ export default async function MaterialPage({
       materialesDisponibles={materiales}
       esGestor={esGestor(profile)}
       convenio={convenio}
+      usadoEn={usadoEn}
     />
   );
 }

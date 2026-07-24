@@ -12,5 +12,12 @@ export default defineConfig({
     include: ["tests/integration/**/*.test.ts"],
     setupFiles: ["./tests/setup-env.ts"],
     testTimeout: 20_000,
+    // Todos estos archivos pegan contra el MISMO proyecto de Supabase real
+    // (no una base aislada por archivo) — correrlos en paralelo (default de
+    // Vitest) deja una ventana real donde el afterEach de un archivo borra
+    // filas que otro archivo, corriendo al mismo tiempo, todavía necesita
+    // (visto dos veces en auditoría: casos-automaticos y sincronizar-
+    // notificaciones fallaron sueltos, pero pasaron siempre en aislado).
+    fileParallelism: false,
   },
 });

@@ -20,6 +20,7 @@ import type {
   HistorialPrecio,
   MaterialConRelaciones,
   MovimientoConRelaciones,
+  ProductoQueUsa,
   Proveedor,
   StockPorUbicacion,
   Ubicacion,
@@ -56,6 +57,7 @@ export function MaterialDetail({
   materialesDisponibles,
   esGestor,
   convenio,
+  usadoEn,
 }: {
   material: MaterialConRelaciones;
   movimientos: MovimientoConRelaciones[];
@@ -69,6 +71,7 @@ export function MaterialDetail({
   materialesDisponibles: MaterialConRelaciones[];
   esGestor: boolean;
   convenio: Convenio | null;
+  usadoEn: ProductoQueUsa[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -325,6 +328,33 @@ export function MaterialDetail({
         materialesDisponibles={materialesDisponibles}
         esGestor={esGestor}
       />
+
+      {usadoEn.length > 0 && (
+        <Card className="mb-6 p-4 md:p-5">
+          <h2 className="mb-3 font-semibold text-fg">Se usa en</h2>
+          <p className="mb-3 text-xs text-muted">
+            Este material es componente de la receta de estos productos — si
+            está bajo de stock, puede que convenga producir más de alguno de
+            ellos en vez de solo comprar el componente.
+          </p>
+          <ul className="divide-y divide-line">
+            {usadoEn.map((p) => (
+              <li key={p.id} className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-sm text-fg">{p.nombre}</p>
+                  {p.sku && <p className="text-xs text-faint">{p.sku}</p>}
+                </div>
+                <Link
+                  href={`/produccion`}
+                  className="text-xs font-medium text-accent hover:underline"
+                >
+                  Ir a producción →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <MovimientoForm
         open={movOpen}
