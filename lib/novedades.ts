@@ -22,10 +22,22 @@ export const NOVEDADES: NovedadesMes[] = [
     mes: "Julio 2026",
     items: [
       {
+        titulo: "Aviso de correos sospechosos",
+        descripcion:
+          "El sistema avisa cuando un correo de un caso no viene realmente del proveedor esperado, para que no se te cuele una respuesta equivocada o falsa.",
+        tipo: "nuevo",
+      },
+      {
         titulo: "Comparar cotizaciones de varios proveedores",
         descripcion:
           "Cuando un material se puede comprar con más de un proveedor, el sistema pide cotización a todos a la vez y te deja comparar antes de elegir con quién comprar.",
         tipo: "nuevo",
+      },
+      {
+        titulo: "Correo completo en el historial de cada caso",
+        descripcion:
+          "El correo enviado o recibido de cada compra queda guardado tal cual, no solo un resumen — se puede leer completo desde el propio caso.",
+        tipo: "mejora",
       },
       {
         titulo: "Reabasto automático",
