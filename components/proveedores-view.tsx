@@ -16,6 +16,7 @@ import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { SolicitudCotizacionForm } from "@/components/solicitud-cotizacion-form";
 import { CasoDetalleModal } from "@/components/caso-detalle-modal";
+import { NuevoProveedorModal } from "@/components/nuevo-proveedor-modal";
 import {
   asignarResponsableCasoCompra,
   cambiarEstadoCasoCompra,
@@ -101,6 +102,7 @@ export function ProveedoresView({
 }) {
   const router = useRouter();
   const [formAbierto, setFormAbierto] = useState(false);
+  const [proveedorAbierto, setProveedorAbierto] = useState(false);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
   const [prefill, setPrefill] = useState<PrefillCasoCompra | null>(null);
   const [recibiendo, setRecibiendo] = useState<CasoCompraConRelaciones | null>(
@@ -266,6 +268,12 @@ export function ProveedoresView({
               <Mail className="h-4 w-4" /> Simular correo
             </Button>
           )}
+          <Button
+            variant="secondary"
+            onClick={() => setProveedorAbierto(true)}
+          >
+            <Plus className="h-4 w-4" /> Nuevo proveedor
+          </Button>
           <Button
             onClick={() => {
               setPrefill(null);
@@ -589,6 +597,10 @@ export function ProveedoresView({
         materiales={materiales}
         usuarios={usuarios}
         prefill={prefill}
+      />
+      <NuevoProveedorModal
+        open={proveedorAbierto}
+        onClose={() => setProveedorAbierto(false)}
       />
       <SimuladorEmail
         open={simuladorAbierto}
