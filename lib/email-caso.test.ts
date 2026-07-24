@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchReferenciaEnAsunto } from "@/lib/email-caso";
+import { esRemitenteExterno, matchReferenciaEnAsunto } from "@/lib/email-caso";
 
 const CASOS = [
   { id: "c1", referencia: "OC-123456" },
@@ -45,5 +45,29 @@ describe("matchReferenciaEnAsunto", () => {
 
   it("no explota con casos sin referencia (null)", () => {
     expect(matchReferenciaEnAsunto("[OC-123456]", CASOS)).not.toBeNull();
+  });
+});
+
+describe("esRemitenteExterno", () => {
+  it("es externo si el dominio no coincide con el propio", () => {
+    expect(esRemitenteExterno("compras@proveedor.mx", "miempresa.com")).toBe(true);
+  });
+
+  it("no es externo si el dominio coincide con el propio", () => {
+    expect(esRemitenteExterno("juan@miempresa.com", "miempresa.com")).toBe(false);
+  });
+
+  it("ignora mayúsculas/minúsculas al comparar dominios", () => {
+    expect(esRemitenteExterno("Juan@MiEmpresa.COM", "miempresa.com")).toBe(false);
+  });
+
+  it("funciona con remitente tipo 'Nombre <a@b.mx>'", () => {
+    expect(esRemitenteExterno("Juan Pérez <juan@miempresa.com>", "miempresa.com")).toBe(
+      false
+    );
+  });
+
+  it("sin dominio propio configurado, trata TODO como externo (por defecto desconfiar)", () => {
+    expect(esRemitenteExterno("juan@miempresa.com", null)).toBe(true);
   });
 });

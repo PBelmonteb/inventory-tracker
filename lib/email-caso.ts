@@ -32,6 +32,27 @@ export function matchProveedor<T extends ProveedorMatch>(
   );
 }
 
+/**
+ * ¿El remitente es externo a la organización? Compara el dominio del
+ * remitente contra el dominio propio (derivado de EMAIL_FROM, ver
+ * app/api/email-caso/route.ts). Sin dominio propio configurado, se trata
+ * TODO como externo — por defecto hay que desconfiar, no al revés.
+ *
+ * Mitigación de riesgo humano (no de spoofing): el remitente de un correo
+ * (`From:`) no se autentica de ninguna forma (ni aquí ni con SPF/DKIM
+ * todavía) — este aviso no evita que alguien lo falsifique, solo evita que
+ * el staff lo pase por alto sin darse cuenta de que viene de fuera.
+ */
+export function esRemitenteExterno(
+  remitente: string,
+  dominioPropio: string | null
+): boolean {
+  if (!dominioPropio) return true;
+  const email = normalizarEmail(remitente);
+  const dominio = email.split("@")[1] ?? "";
+  return dominio.toLowerCase() !== dominioPropio.toLowerCase();
+}
+
 function sinDiacriticos(s: string): string {
   return s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 }

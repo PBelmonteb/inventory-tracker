@@ -15,6 +15,7 @@ import { mensajeSupabase } from "@/lib/supabase/errors";
 import { secretoValido } from "@/lib/webhook-auth";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import {
+  esRemitenteExterno,
   extraerMonto,
   formatearCorreoEvento,
   matchMaterial,
@@ -28,6 +29,14 @@ import { registrarEventoCaso } from "@/lib/eventos-caso";
 // Casos que todavía admiten respuestas ligadas a su hilo (uno ya
 // recibido/cancelado no tiene sentido reabrirlo por un correo tardío).
 const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "ordenado"];
+const SISTEMA = { id: null, nombre: null };
+
+// Dominio propio (para "¿es un remitente externo?") derivado de EMAIL_FROM
+// — el mismo dominio desde el que la app manda correo, no una variable
+// nueva que haya que configurar aparte.
+function dominioPropio(): string | null {
+  return process.env.EMAIL_FROM?.split("@")[1]?.trim().toLowerCase() || null;
+}
 
 export async function POST(req: Request) {
   // ---- Autenticación del webhook ----
@@ -76,19 +85,30 @@ export async function POST(req: Request) {
     if (store.emailYaProcesado(email.mensajeId))
       return NextResponse.json({ ok: true, duplicado: true });
 
+    const dominio = dominioPropio();
+    const externo = esRemitenteExterno(email.de, dominio);
+    const proveedores = store.getProveedores();
+    const proveedorRemitente = matchProveedor(email.de, proveedores);
+
     // Antes de crear un caso nuevo: ¿es una respuesta a uno que ya existe?
     // El código viaja en el asunto (lib/plantillas-correo.ts) — si aparece,
-    // se liga como evento en vez de duplicar el caso.
+    // se liga como evento en vez de duplicar el caso. El código por sí solo
+    // NO autentica al remitente (son 6 dígitos de un timestamp, y viajan en
+    // el asunto saliente) — se guarda si el remitente coincide con el
+    // proveedor de ESE caso, para que el staff lo vea en el timeline.
     const casosAbiertos = store
       .getCasosCompra()
       .filter((c) => CASO_COMPRA_ABIERTO.includes(c.estado));
     const casoLigado = matchReferenciaEnAsunto(email.asunto, casosAbiertos);
     if (casoLigado) {
+      const verificado =
+        proveedorRemitente != null && proveedorRemitente.id === casoLigado.proveedor_id;
       store.registrarEventoCaso(
         casoLigado.id,
         "correo_recibido",
         formatearCorreoEvento(email.asunto, email.cuerpo),
-        { id: null, nombre: null }
+        SISTEMA,
+        { remitenteExterno: externo, remitenteVerificado: verificado }
       );
       store.registrarEmailProcesado(email.mensajeId);
       revalidatePath("/proveedores");
@@ -99,8 +119,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const proveedor = matchProveedor(email.de, store.getProveedores());
-    if (!proveedor)
+    if (!proveedorRemitente)
       // Anti-spam: solo remitentes registrados como proveedores crean casos.
       return NextResponse.json(
         {
@@ -112,7 +131,7 @@ export async function POST(req: Request) {
 
     const material = matchMaterial(texto, store.getMateriales());
     const caso = store.crearCasoCompra({
-      proveedor_id: proveedor.id,
+      proveedor_id: proveedorRemitente.id,
       material_id: material?.id ?? null,
       titulo,
       descripcion: resumirCuerpo(email.cuerpo),
@@ -120,12 +139,13 @@ export async function POST(req: Request) {
       referencia: `OC-${Date.now().toString().slice(-6)}`,
       origen: "correo",
     });
-    store.registrarEventoCaso(caso.id, "creado", null, { id: null, nombre: null });
+    store.registrarEventoCaso(caso.id, "creado", null, SISTEMA);
     store.registrarEventoCaso(
       caso.id,
       "correo_recibido",
       formatearCorreoEvento(email.asunto, email.cuerpo),
-      { id: null, nombre: null }
+      SISTEMA,
+      { remitenteExterno: externo, remitenteVerificado: true }
     );
     store.registrarEmailProcesado(email.mensajeId);
 
@@ -136,7 +156,7 @@ export async function POST(req: Request) {
         id: caso.id,
         titulo: caso.titulo,
         referencia: caso.referencia,
-        proveedor: proveedor.nombre,
+        proveedor: proveedorRemitente.nombre,
         material: material?.nombre ?? null,
         monto_estimado: caso.monto_estimado,
       },
@@ -163,18 +183,34 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: casosAbiertos } = await supabase
-    .from("casos_compra")
-    .select("id, referencia")
-    .in("estado", CASO_COMPRA_ABIERTO);
+  const [{ data: casosAbiertos }, { data: proveedores }] = await Promise.all([
+    supabase
+      .from("casos_compra")
+      .select("id, referencia, proveedor_id")
+      .in("estado", CASO_COMPRA_ABIERTO),
+    supabase.from("proveedores").select("id,nombre,contacto"),
+  ]);
+
+  const dominio = dominioPropio();
+  const externo = esRemitenteExterno(email.de, dominio);
+  const proveedorRemitente = matchProveedor(email.de, proveedores ?? []);
+
+  // El código en el asunto NO autentica al remitente por sí solo (son 6
+  // dígitos de un timestamp, y viajan en el asunto saliente) — se guarda
+  // igual (no se rechaza: cortaría respuestas legítimas desde un contacto
+  // distinto al registrado), pero solo si el remitente coincide con el
+  // proveedor de ESE caso se marca "verificado" para que el staff lo vea.
   const casoLigado = matchReferenciaEnAsunto(email.asunto, casosAbiertos ?? []);
   if (casoLigado) {
+    const verificado =
+      proveedorRemitente != null && proveedorRemitente.id === casoLigado.proveedor_id;
     await registrarEventoCaso(
       supabase,
       casoLigado.id,
       "correo_recibido",
       formatearCorreoEvento(email.asunto, email.cuerpo),
-      { id: null, nombre: null }
+      SISTEMA,
+      { remitenteExterno: externo, remitenteVerificado: verificado }
     );
     revalidatePath("/proveedores");
     return NextResponse.json({
@@ -184,13 +220,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const [{ data: proveedores }, { data: materiales }] = await Promise.all([
-    supabase.from("proveedores").select("id,nombre,contacto"),
-    supabase.from("materiales").select("id,nombre,sku").eq("activo", true),
-  ]);
-
-  const proveedor = matchProveedor(email.de, proveedores ?? []);
-  if (!proveedor)
+  if (!proveedorRemitente)
     return NextResponse.json(
       {
         ok: false,
@@ -199,11 +229,16 @@ export async function POST(req: Request) {
       { status: 422 }
     );
 
+  const { data: materiales } = await supabase
+    .from("materiales")
+    .select("id,nombre,sku")
+    .eq("activo", true);
+
   const material = matchMaterial(texto, materiales ?? []);
   const { data: caso, error } = await supabase
     .from("casos_compra")
     .insert({
-      proveedor_id: proveedor.id,
+      proveedor_id: proveedorRemitente.id,
       material_id: material?.id ?? null,
       titulo,
       descripcion: resumirCuerpo(email.cuerpo),
@@ -218,13 +253,14 @@ export async function POST(req: Request) {
       { ok: false, error: mensajeSupabase(error) },
       { status: 500 }
     );
-  await registrarEventoCaso(supabase, caso.id, "creado", null, { id: null, nombre: null });
+  await registrarEventoCaso(supabase, caso.id, "creado", null, SISTEMA);
   await registrarEventoCaso(
     supabase,
     caso.id,
     "correo_recibido",
     formatearCorreoEvento(email.asunto, email.cuerpo),
-    { id: null, nombre: null }
+    SISTEMA,
+    { remitenteExterno: externo, remitenteVerificado: true }
   );
 
   revalidatePath("/proveedores");
@@ -232,7 +268,7 @@ export async function POST(req: Request) {
     ok: true,
     caso: {
       ...caso,
-      proveedor: proveedor.nombre,
+      proveedor: proveedorRemitente.nombre,
       material: material?.nombre ?? null,
     },
   });
