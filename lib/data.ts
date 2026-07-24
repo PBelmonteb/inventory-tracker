@@ -100,6 +100,30 @@ export async function getComprometido(): Promise<Record<string, number>> {
   return map;
 }
 
+// Stock por llegar por material: órdenes de compra ya colocadas con el
+// proveedor ("ordenado"), aún sin recibir. "pendiente"/"cotizando" no
+// cuentan — todavía no son un compromiso real de entrega. Solo suma casos
+// con cantidad_estimada capturada (ver migración 0024); casos sin ese dato
+// (p. ej. los que llegaron por correo) simplemente no aportan aquí.
+export async function getPorLlegar(): Promise<Record<string, number>> {
+  if (DEMO) return store.getPorLlegarPorMaterial();
+  const supabase = await createClient();
+  const map: Record<string, number> = {};
+  const { data } = await supabase
+    .from("casos_compra")
+    .select("material_id, cantidad_estimada")
+    .eq("estado", "ordenado")
+    .not("material_id", "is", null);
+  for (const c of (data ?? []) as {
+    material_id: string;
+    cantidad_estimada: number | null;
+  }[]) {
+    if (!c.cantidad_estimada) continue;
+    map[c.material_id] = (map[c.material_id] ?? 0) + Number(c.cantidad_estimada);
+  }
+  return map;
+}
+
 type UbicNombre = { nombre: string } | { nombre: string }[] | null;
 const nombreDeRelacion = (u: UbicNombre): string | undefined =>
   Array.isArray(u) ? u[0]?.nombre : u?.nombre;

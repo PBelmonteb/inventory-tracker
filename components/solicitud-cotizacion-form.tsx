@@ -177,6 +177,7 @@ export function SolicitudCotizacionForm({
     // Mismo código que ya viaja en el asunto del correo — no dejar que el
     // servidor invente uno distinto (rompería el enlace de respuestas).
     fd.set("referencia", referencia);
+    fd.set("cantidad_estimada", String(cantidadActual));
     // Sin convenio no hay precio conocido para estimar un monto (igual que
     // antes: 0, editable después desde el caso una vez que llegue la cotización).
     if (convenio)

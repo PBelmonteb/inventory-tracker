@@ -4,6 +4,7 @@ import {
   getCategorias,
   getComprometido,
   getMateriales,
+  getPorLlegar,
   getProveedores,
   getUbicaciones,
 } from "@/lib/data";
@@ -11,7 +12,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function InventarioPage() {
-  const [profile, materiales, categorias, ubicaciones, proveedores, comprometido] =
+  const [profile, materiales, categorias, ubicaciones, proveedores, comprometido, porLlegar] =
     await Promise.all([
       getCurrentProfile(),
       getMateriales(),
@@ -19,6 +20,7 @@ export default async function InventarioPage() {
       getUbicaciones(),
       getProveedores(),
       getComprometido(),
+      getPorLlegar(),
     ]);
 
   return (
@@ -28,6 +30,7 @@ export default async function InventarioPage() {
       ubicaciones={ubicaciones}
       proveedores={proveedores}
       comprometido={comprometido}
+      porLlegar={porLlegar}
       esGestor={esGestor(profile)}
     />
   );

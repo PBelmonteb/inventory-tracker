@@ -337,6 +337,18 @@ export const store = {
     return map;
   },
 
+  // Espejo de getPorLlegar() (lib/data.ts): solo casos "ordenado" con
+  // cantidad_estimada capturada.
+  getPorLlegarPorMaterial(): Record<string, number> {
+    const map: Record<string, number> = {};
+    for (const c of db.casos_compra) {
+      if (c.estado !== "ordenado" || !c.material_id || !c.cantidad_estimada)
+        continue;
+      map[c.material_id] = (map[c.material_id] ?? 0) + c.cantidad_estimada;
+    }
+    return map;
+  },
+
   getAuditoria(limite = 200): Auditoria[] {
     return [...db.auditoria]
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
@@ -1060,6 +1072,7 @@ export const store = {
       titulo: string;
       descripcion: string | null;
       monto_estimado: number;
+      cantidad_estimada?: number | null;
       referencia: string | null;
       origen?: OrigenCasoCompra;
       estado?: EstadoCasoCompra;
@@ -1075,6 +1088,7 @@ export const store = {
     const caso: CasoCompra = {
       ...data,
       titulo: data.titulo.trim(),
+      cantidad_estimada: data.cantidad_estimada ?? null,
       origen: data.origen ?? "manual",
       id: uid(),
       estado: data.estado ?? "pendiente",
@@ -1179,13 +1193,15 @@ export const store = {
     casoId: string,
     titulo: string,
     descripcion: string | null,
-    montoEstimado: number | null = null
+    montoEstimado: number | null = null,
+    cantidadEstimada: number | null = null
   ): void {
     const c = db.casos_compra.find((x) => x.id === casoId);
     if (!c) throw new Error("Caso de compra no encontrado");
     c.titulo = titulo;
     c.descripcion = descripcion;
     if (montoEstimado !== null) c.monto_estimado = montoEstimado;
+    if (cantidadEstimada !== null) c.cantidad_estimada = cantidadEstimada;
     if (c.estado === "pendiente") c.estado = "cotizando";
     c.updated_at = new Date().toISOString();
     if (c.material_id) store.atenderNotificacionesDeMaterial(c.material_id, c.id);
@@ -1281,6 +1297,7 @@ export const store = {
         titulo: `Reposición automática: ${m.nombre}`,
         descripcion: `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${m.unidad}.${notaConvenio}`,
         monto_estimado: precioUnitario > 0 ? precioUnitario * cantidad : 0,
+        cantidad_estimada: cantidad,
         referencia,
         origen: "stock_bajo",
       });
@@ -1383,6 +1400,7 @@ export const store = {
           titulo: `Reposición automática: ${m.nombre}`,
           descripcion: descripcionBase,
           monto_estimado: precioUnitario * cantidad,
+          cantidad_estimada: cantidad,
           referencia,
           origen: "stock_bajo",
           solicitud_id: solicitud.id,
@@ -1654,6 +1672,7 @@ export const store = {
       material_id: string | null;
       titulo: string;
       descripcion: string | null;
+      cantidad_estimada?: number | null;
       responsable_id?: string | null;
       notificacion_id?: string | null;
     },
@@ -1670,6 +1689,7 @@ export const store = {
           titulo: datos.titulo,
           descripcion: datos.descripcion,
           monto_estimado: 0,
+          cantidad_estimada: datos.cantidad_estimada,
           referencia: `OC-${Date.now().toString().slice(-6)}`,
           responsable_id: datos.responsable_id,
           origen: datos.notificacion_id ? "stock_bajo" : "manual",
@@ -1719,6 +1739,7 @@ export const store = {
         titulo: datos.titulo,
         descripcion: datos.descripcion,
         monto_estimado: convenio?.precio_pactado ?? 0,
+        cantidad_estimada: datos.cantidad_estimada,
         referencia: `OC-${Date.now().toString().slice(-6)}-${casos.length}`,
         responsable_id: datos.responsable_id,
       });

@@ -290,6 +290,9 @@ export interface CasoCompra {
   titulo: string;
   descripcion: string | null;
   monto_estimado: number;
+  // Cantidad esperada de esta orden (en la unidad del material) — null si no
+  // se capturó (ver "stock por llegar" en Inventario, lib/data.ts).
+  cantidad_estimada: number | null;
   referencia: string | null; // OC-xxxx
   estado: EstadoCasoCompra;
   origen: OrigenCasoCompra;

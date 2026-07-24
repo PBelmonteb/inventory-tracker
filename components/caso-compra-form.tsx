@@ -168,6 +168,22 @@ export function CasoCompraForm({
           />
         </div>
 
+        <div>
+          <Label htmlFor="cc-cantidad">Cantidad estimada (opcional)</Label>
+          <Input
+            id="cc-cantidad"
+            name="cantidad_estimada"
+            type="number"
+            step="any"
+            min="0"
+            placeholder="Ej. 150"
+          />
+          <p className="mt-1 text-xs text-faint">
+            Se usa para calcular el stock "por llegar" en Inventario mientras
+            el caso siga en curso.
+          </p>
+        </div>
+
         {unProveedorId && (
           <div>
             <Label htmlFor="cc-monto">Monto estimado (MXN)</Label>

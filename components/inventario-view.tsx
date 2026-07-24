@@ -30,6 +30,7 @@ export function InventarioView({
   ubicaciones,
   proveedores,
   comprometido = {},
+  porLlegar = {},
   esGestor,
 }: {
   materiales: MaterialConRelaciones[];
@@ -37,6 +38,7 @@ export function InventarioView({
   ubicaciones: Ubicacion[];
   proveedores: Proveedor[];
   comprometido?: Record<string, number>;
+  porLlegar?: Record<string, number>;
   esGestor: boolean;
 }) {
   const router = useRouter();
@@ -112,6 +114,9 @@ export function InventarioView({
       Proveedor: m.proveedores?.nombre ?? "",
       Unidad: m.unidad,
       "Stock actual": m.stock_actual,
+      "Por llegar": porLlegar[m.id] ?? 0,
+      Comprometido: comprometido[m.id] ?? 0,
+      Proyectado: proyectado(m),
       "Stock mínimo": m.stock_minimo,
       "Costo (WAC)": m.costo_unitario,
       "Precio venta": m.precio_venta,
@@ -119,6 +124,10 @@ export function InventarioView({
       "Valor en stock":
         Math.round(m.stock_actual * m.costo_unitario * 100) / 100,
     }));
+  }
+
+  function proyectado(m: MaterialConRelaciones): number {
+    return m.stock_actual + (porLlegar[m.id] ?? 0) - (comprometido[m.id] ?? 0);
   }
 
   function exportarInventarioCSV() {
@@ -135,6 +144,9 @@ export function InventarioView({
       Proveedor: m.proveedores?.nombre ?? "",
       Unidad: m.unidad,
       "Stock actual": m.stock_actual,
+      "Por llegar": porLlegar[m.id] ?? 0,
+      Comprometido: comprometido[m.id] ?? 0,
+      Proyectado: proyectado(m),
       "Stock mínimo": m.stock_minimo,
       "Costo (WAC)": m.costo_unitario,
       "Precio venta": m.precio_venta,
@@ -152,6 +164,9 @@ export function InventarioView({
       { wch: 20 }, // Proveedor
       { wch: 8 }, // Unidad
       { wch: 12 }, // Stock actual
+      { wch: 12 }, // Por llegar
+      { wch: 12 }, // Comprometido
+      { wch: 12 }, // Proyectado
       { wch: 12 }, // Stock mínimo
       { wch: 12 }, // Costo (WAC)
       { wch: 12 }, // Precio venta
@@ -162,8 +177,8 @@ export function InventarioView({
     // Formatos numéricos: moneda en columnas de dinero, miles en stock.
     const MONEDA = '"$"#,##0.00';
     const CANTIDAD = "#,##0.###";
-    const colMoneda = [8, 9, 10, 11];
-    const colCantidad = [6, 7];
+    const colMoneda = [11, 12, 13, 14];
+    const colCantidad = [6, 7, 8, 9, 10];
     for (let r = 1; r <= filas.length; r++) {
       for (const c of colMoneda) {
         const ref = XLSX.utils.encode_cell({ r, c });
@@ -309,6 +324,7 @@ export function InventarioView({
         <>
           {/* Tabla escritorio */}
           <Card className="hidden overflow-hidden md:block">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b border-line bg-surface-2/50 text-left text-[11px] uppercase tracking-wide text-faint">
                 <tr>
@@ -316,6 +332,15 @@ export function InventarioView({
                   <th className="px-4 py-3 font-medium">Categoría</th>
                   <th className="px-4 py-3 font-medium">Ubicación</th>
                   <th className="px-4 py-3 text-right font-medium">Stock</th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Por llegar
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Comprometido
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    Proyectado
+                  </th>
                   <th className="px-4 py-3 text-right font-medium">Mínimo</th>
                   <th className="px-4 py-3 text-right font-medium">Valor</th>
                   <th className="px-4 py-3"></th>
@@ -326,7 +351,9 @@ export function InventarioView({
                   const nivel = nivelStock(m);
                   const bajo = nivel === "bajo";
                   const aviso = nivel === "aviso";
-                  const disponible = m.stock_actual - (comprometido[m.id] ?? 0);
+                  const llegando = porLlegar[m.id] ?? 0;
+                  const comprometidoQty = comprometido[m.id] ?? 0;
+                  const proy = proyectado(m);
                   return (
                     <tr
                       key={m.id}
@@ -372,17 +399,23 @@ export function InventarioView({
                             {formatQty(m.stock_actual, m.unidad)}
                           </span>
                         </span>
-                        {(comprometido[m.id] ?? 0) > 0 && (
-                          <p
-                            className={
-                              disponible < 0
-                                ? "mt-0.5 text-[11px] font-semibold text-red-600 dark:text-red-400"
-                                : "mt-0.5 text-[11px] text-faint"
-                            }
-                          >
-                            disp. {formatQty(disponible, m.unidad)}
-                          </p>
-                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-muted">
+                        {llegando > 0 ? formatQty(llegando, m.unidad) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-muted">
+                        {comprometidoQty > 0
+                          ? formatQty(comprometidoQty, m.unidad)
+                          : "—"}
+                      </td>
+                      <td
+                        className={
+                          proy < 0
+                            ? "px-4 py-3 text-right font-semibold text-red-600 dark:text-red-400"
+                            : "px-4 py-3 text-right text-fg"
+                        }
+                      >
+                        {formatQty(proy, m.unidad)}
                       </td>
                       <td className="px-4 py-3 text-right text-faint">
                         {formatQty(m.stock_minimo, m.unidad)}
@@ -406,6 +439,7 @@ export function InventarioView({
                 })}
               </tbody>
             </table>
+            </div>
           </Card>
 
           {/* Tarjetas móvil */}
@@ -414,7 +448,9 @@ export function InventarioView({
               const nivel = nivelStock(m);
               const bajo = nivel === "bajo";
               const aviso = nivel === "aviso";
-              const disponible = m.stock_actual - (comprometido[m.id] ?? 0);
+              const llegando = porLlegar[m.id] ?? 0;
+              const comprometidoQty = comprometido[m.id] ?? 0;
+              const proy = proyectado(m);
               return (
                 <Card key={m.id} className="p-3.5">
                   <div className="flex items-start justify-between gap-2">
@@ -449,20 +485,6 @@ export function InventarioView({
                       </p>
                       <p className="text-xs text-faint">
                         mín. {formatQty(m.stock_minimo, m.unidad)}
-                        {(comprometido[m.id] ?? 0) > 0 && (
-                          <>
-                            {" · "}
-                            <span
-                              className={
-                                disponible < 0
-                                  ? "font-semibold text-red-600 dark:text-red-400"
-                                  : undefined
-                              }
-                            >
-                              disp. {formatQty(disponible, m.unidad)}
-                            </span>
-                          </>
-                        )}
                       </p>
                     </div>
                     {esGestor && (
@@ -475,6 +497,42 @@ export function InventarioView({
                       </button>
                     )}
                   </div>
+                  {(llegando > 0 || comprometidoQty > 0 || proy !== m.stock_actual) && (
+                    <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-2.5 text-center">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-faint">
+                          Por llegar
+                        </p>
+                        <p className="mt-0.5 text-sm text-fg">
+                          {llegando > 0 ? formatQty(llegando, m.unidad) : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-faint">
+                          Comprometido
+                        </p>
+                        <p className="mt-0.5 text-sm text-fg">
+                          {comprometidoQty > 0
+                            ? formatQty(comprometidoQty, m.unidad)
+                            : "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] uppercase tracking-wide text-faint">
+                          Proyectado
+                        </p>
+                        <p
+                          className={
+                            proy < 0
+                              ? "mt-0.5 text-sm font-semibold text-red-600 dark:text-red-400"
+                              : "mt-0.5 text-sm text-fg"
+                          }
+                        >
+                          {formatQty(proy, m.unidad)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </Card>
               );
             })}

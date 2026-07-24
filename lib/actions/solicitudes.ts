@@ -44,6 +44,8 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
   const descripcion = String(formData.get("descripcion") ?? "").trim() || null;
   const responsable_id = String(formData.get("responsable_id") ?? "") || null;
   const notificacion_id = String(formData.get("notificacion_id") ?? "") || null;
+  const cantidadRaw = String(formData.get("cantidad_estimada") ?? "").trim();
+  const cantidad_estimada = cantidadRaw ? Number(cantidadRaw) || null : null;
 
   if (proveedorIds.length === 0)
     return { ok: false, error: "Selecciona al menos un proveedor" };
@@ -60,6 +62,7 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
           material_id,
           titulo,
           descripcion,
+          cantidad_estimada,
           responsable_id,
           notificacion_id,
         },
@@ -81,6 +84,7 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
           titulo,
           descripcion,
           monto_estimado: 0,
+          cantidad_estimada,
           referencia,
           origen: notificacion_id ? "stock_bajo" : "manual",
         })
@@ -170,6 +174,7 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
             titulo,
             descripcion,
             monto_estimado: precioPorProveedor.get(proveedorId) ?? 0,
+            cantidad_estimada,
             referencia,
             solicitud_id: solicitud.id,
           })

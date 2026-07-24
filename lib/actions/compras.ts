@@ -218,6 +218,8 @@ export async function solicitarCotizacion(
   // Sin convenio, el formulario no manda este campo — se queda en 0 como
   // antes (se afina después, cuando llegue la cotización real).
   const monto_estimado = Number(formData.get("monto_estimado") ?? 0) || 0;
+  const cantidadRaw = String(formData.get("cantidad_estimada") ?? "").trim();
+  const cantidad_estimada = cantidadRaw ? Number(cantidadRaw) || null : null;
   let referencia = String(formData.get("referencia") ?? "").trim();
   if (!referencia) referencia = `OC-${Date.now().toString().slice(-6)}`;
   // Cuerpo completo del correo (sin recortar) para el evento del timeline —
@@ -242,6 +244,7 @@ export async function solicitarCotizacion(
         titulo,
         descripcion,
         monto_estimado,
+        cantidad_estimada,
         referencia,
         origen,
         estado: "cotizando",
@@ -263,6 +266,7 @@ export async function solicitarCotizacion(
         titulo,
         descripcion,
         monto_estimado,
+        cantidad_estimada,
         referencia,
         origen,
         estado: "cotizando",
@@ -310,6 +314,8 @@ export async function enviarCotizacionCasoExistente(
   // automática — no tiene caso pisarlo con 0 si esta vez no hay convenio).
   const montoRaw = formData.get("monto_estimado");
   const monto_estimado = montoRaw != null ? Number(montoRaw) : null;
+  const cantidadRaw = formData.get("cantidad_estimada");
+  const cantidad_estimada = cantidadRaw != null ? Number(cantidadRaw) || null : null;
   const cuerpoCompleto =
     String(formData.get("cuerpo_completo") ?? "").trim() || descripcion || "";
   const yo = await getCurrentProfile();
@@ -318,7 +324,13 @@ export async function enviarCotizacionCasoExistente(
 
   if (DEMO) {
     try {
-      store.enviarCotizacionCasoExistente(casoId, titulo, descripcion, monto_estimado);
+      store.enviarCotizacionCasoExistente(
+        casoId,
+        titulo,
+        descripcion,
+        monto_estimado,
+        cantidad_estimada
+      );
       store.registrarEventoCaso(casoId, "correo_enviado", detalleCorreo, actor);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
@@ -341,6 +353,7 @@ export async function enviarCotizacionCasoExistente(
         estado: nuevoEstado,
         updated_at: new Date().toISOString(),
         ...(monto_estimado !== null ? { monto_estimado } : {}),
+        ...(cantidad_estimada !== null ? { cantidad_estimada } : {}),
       })
       .eq("id", casoId);
     if (error) return { ok: false, error: mensajeSupabase(error) };
