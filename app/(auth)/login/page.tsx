@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { Button, Card, Input, Label } from "@/components/ui";
@@ -9,7 +8,6 @@ import { Boxes, Eye, EyeOff } from "lucide-react";
 
 // Sin auto-registro: las cuentas las da de alta un gestor desde /usuarios.
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [verPassword, setVerPassword] = useState(false);
@@ -28,8 +26,11 @@ export default function LoginPage() {
         password,
       });
       if (error) throw error;
-      router.push("/inventario");
-      router.refresh();
+      // Navegación completa (no router.push) para que la cookie de sesión
+      // recién escrita llegue de una vez al servidor — con router.push, la
+      // caché de navegación de Next puede reusar el árbol ya renderizado
+      // (sin sesión) que se prefetcheó antes de iniciar sesión.
+      window.location.href = "/inventario";
     } catch (err) {
       setError(
         err instanceof Error ? mensajeSupabase(err) : "Ocurrió un error"
