@@ -333,51 +333,55 @@ export function ProveedoresView({
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi label="Notificaciones activas" value={String(abiertas.length)} alerta={abiertas.length > 0} />
-        <Kpi label="Casos abiertos" value={String(casosAbiertos.length)} />
-        <Kpi label="Monto en pipeline" value={formatMoney(montoPipeline)} />
-        <Kpi label="Casos por correo (7 días)" value={String(porCorreo7d)} />
-      </div>
+      {/* KPIs + origen de los casos: solo gestor — el operario solo necesita
+          las pestañas y las alertas de stock, sin cifras de negocio. */}
+      {esGestor && (
+        <>
+          <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Kpi label="Notificaciones activas" value={String(abiertas.length)} alerta={abiertas.length > 0} />
+            <Kpi label="Casos abiertos" value={String(casosAbiertos.length)} />
+            <Kpi label="Monto en pipeline" value={formatMoney(montoPipeline)} />
+            <Kpi label="Casos por correo (7 días)" value={String(porCorreo7d)} />
+          </div>
 
-      {/* Dashboard: origen de los casos */}
-      <Card className="mb-6 p-4 md:p-5">
-        <h2 className="mb-3 font-semibold text-fg">Origen de los casos</h2>
-        {casos.length === 0 ? (
-          <p className="py-2 text-sm text-faint">Aún no hay casos.</p>
-        ) : (
-          <>
-            <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-surface-2">
-              {porOrigen
-                .filter((o) => o.total > 0)
-                .map((o) => (
-                  <div
-                    key={o.origen}
-                    className={ORIGEN_META[o.origen].barra}
-                    style={{ width: `${(o.total / casos.length) * 100}%` }}
-                  />
-                ))}
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {porOrigen.map(({ origen, total }) => {
-                const { label, Icon, barra } = ORIGEN_META[origen];
-                return (
-                  <div key={origen} className="flex items-center gap-2.5">
-                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${barra}`}>
-                      <Icon className="h-4 w-4 text-accent-fg" />
-                    </span>
-                    <div className="min-w-0 leading-tight">
-                      <p className="text-lg font-semibold text-fg">{total}</p>
-                      <p className="truncate text-xs text-muted">{label}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </Card>
+          <Card className="mb-6 p-4 md:p-5">
+            <h2 className="mb-3 font-semibold text-fg">Origen de los casos</h2>
+            {casos.length === 0 ? (
+              <p className="py-2 text-sm text-faint">Aún no hay casos.</p>
+            ) : (
+              <>
+                <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-surface-2">
+                  {porOrigen
+                    .filter((o) => o.total > 0)
+                    .map((o) => (
+                      <div
+                        key={o.origen}
+                        className={ORIGEN_META[o.origen].barra}
+                        style={{ width: `${(o.total / casos.length) * 100}%` }}
+                      />
+                    ))}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {porOrigen.map(({ origen, total }) => {
+                    const { label, Icon, barra } = ORIGEN_META[origen];
+                    return (
+                      <div key={origen} className="flex items-center gap-2.5">
+                        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${barra}`}>
+                          <Icon className="h-4 w-4 text-accent-fg" />
+                        </span>
+                        <div className="min-w-0 leading-tight">
+                          <p className="text-lg font-semibold text-fg">{total}</p>
+                          <p className="truncate text-xs text-muted">{label}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </Card>
+        </>
+      )}
 
       {/* Notificaciones de stock bajo */}
       <Card className="mb-6 p-4 md:p-5">
