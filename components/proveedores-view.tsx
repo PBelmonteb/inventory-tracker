@@ -162,11 +162,12 @@ export function ProveedoresView({
     return texto.includes(q);
   });
 
+  // El operario también ve esta pestaña (para saber qué casos mandó a
+  // revisión), pero de solo lectura — el botón "Revisar" (autorizar/
+  // rechazar) solo aparece para gestor, más abajo.
   const TABS: { id: TabId; label: string; count: number }[] = [
     { id: "pendientes", label: "Pendientes", count: casosPendientes.length },
-    ...(esGestor
-      ? [{ id: "por_autorizar" as const, label: "Pendientes de Autorizar", count: casosPorAutorizar.length }]
-      : []),
+    { id: "por_autorizar", label: "Pendientes de Autorizar", count: casosPorAutorizar.length },
     { id: "en_espera", label: "Pendientes de llegar", count: casosEnEspera.length },
     { id: "rechazados", label: "Rechazados", count: casosRechazados.length },
     { id: "casos_del_mes", label: "Casos del mes", count: casos.length },
@@ -510,13 +511,15 @@ export function ProveedoresView({
         </div>
       )}
 
-      {tab === "por_autorizar" && esGestor && (
+      {tab === "por_autorizar" && (
         <Card className="p-4 md:p-5">
-          {renderLista(casosPorAutorizar, (c) => (
-            <Button className="px-2.5 py-1 text-xs" onClick={() => setAutorizando(c)}>
-              <ShieldCheck className="h-3.5 w-3.5" /> Revisar
-            </Button>
-          ))}
+          {renderLista(casosPorAutorizar, (c) =>
+            esGestor ? (
+              <Button className="px-2.5 py-1 text-xs" onClick={() => setAutorizando(c)}>
+                <ShieldCheck className="h-3.5 w-3.5" /> Revisar
+              </Button>
+            ) : null
+          )}
         </Card>
       )}
 
