@@ -87,6 +87,8 @@ export function ProveedoresView({
   convenios,
   usuarios,
   esGestor,
+  esAdmin,
+  umbralAdmin,
 }: {
   notificaciones: NotificacionConRelaciones[];
   casos: CasoCompraConRelaciones[];
@@ -96,6 +98,11 @@ export function ProveedoresView({
   convenios: ConvenioConRelaciones[];
   usuarios: UsuarioAsignable[];
   esGestor: boolean;
+  // Arriba de umbralAdmin, un gerente ya no puede autorizar por su cuenta
+  // — solo un admin (lib/actions/autorizacion.ts). Rechazar sigue abierto
+  // a cualquier gestor, no compromete dinero.
+  esAdmin: boolean;
+  umbralAdmin: number;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabId>("pendientes");
@@ -513,13 +520,19 @@ export function ProveedoresView({
 
       {tab === "por_autorizar" && (
         <Card className="p-4 md:p-5">
-          {renderLista(casosPorAutorizar, (c) =>
-            esGestor ? (
+          {renderLista(casosPorAutorizar, (c) => {
+            const requiereAdmin = c.monto_estimado > umbralAdmin;
+            if (!esGestor || (requiereAdmin && !esAdmin)) {
+              return requiereAdmin ? (
+                <span className="text-xs text-faint">Requiere autorización de un administrador</span>
+              ) : null;
+            }
+            return (
               <Button className="px-2.5 py-1 text-xs" onClick={() => setAutorizando(c)}>
                 <ShieldCheck className="h-3.5 w-3.5" /> Revisar
               </Button>
-            ) : null
-          )}
+            );
+          })}
         </Card>
       )}
 
@@ -627,7 +640,12 @@ export function ProveedoresView({
       />
       <RecibirCompraForm caso={recibiendo} onClose={() => setRecibiendo(null)} />
       <MarcarOrdenadoForm caso={ordenando} onClose={() => setOrdenando(null)} />
-      <AutorizarCasoForm caso={autorizando} onClose={() => setAutorizando(null)} />
+      <AutorizarCasoForm
+        caso={autorizando}
+        esAdmin={esAdmin}
+        umbralAdmin={umbralAdmin}
+        onClose={() => setAutorizando(null)}
+      />
       <EditarCasoRechazadoForm
         caso={editandoRechazado}
         proveedores={proveedores}

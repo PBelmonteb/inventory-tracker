@@ -28,7 +28,7 @@ import { registrarEventoCaso } from "@/lib/eventos-caso";
 
 // Casos que todavía admiten respuestas ligadas a su hilo (uno ya
 // recibido/cancelado no tiene sentido reabrirlo por un correo tardío).
-const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "ordenado"];
+const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "por_autorizar", "ordenado"];
 const SISTEMA = { id: null, nombre: null };
 
 // Dominio propio (para "¿es un remitente externo?") derivado de EMAIL_FROM

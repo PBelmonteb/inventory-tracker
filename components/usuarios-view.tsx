@@ -11,9 +11,10 @@ import {
   crearUsuario,
   type UsuarioListado,
 } from "@/lib/actions/usuarios";
-import { formatDate } from "@/lib/utils";
+import { guardarUmbralAutorizacion } from "@/lib/actions/autorizacion";
+import { formatDate, formatMoney } from "@/lib/utils";
 import type { Rol } from "@/lib/types";
-import { Eye, EyeOff, Plus, UserCog, Wand2 } from "lucide-react";
+import { Eye, EyeOff, Plus, Save, ShieldCheck, UserCog, Wand2 } from "lucide-react";
 
 const ROL_LABEL: Record<Rol, string> = {
   admin: "Admin",
@@ -38,10 +39,17 @@ export function UsuariosView({
   usuarios,
   errorInicial,
   miId,
+  esAdmin,
+  umbralInicial,
 }: {
   usuarios: UsuarioListado[];
   errorInicial: string | null;
   miId: string;
+  // El umbral de autorización (ver lib/actions/autorizacion.ts) solo lo
+  // puede cambiar un admin — un gerente ya ve esta página igual que hoy,
+  // pero esta tarjeta es exclusiva de admin.
+  esAdmin: boolean;
+  umbralInicial: number;
 }) {
   const router = useRouter();
   const [formOpen, setFormOpen] = useState(false);
@@ -115,6 +123,8 @@ export function UsuariosView({
           {errorInicial}
         </Card>
       )}
+
+      {esAdmin && <UmbralAutorizacionCard umbralInicial={umbralInicial} />}
 
       <Card className="overflow-hidden">
         {usuarios.length === 0 && !errorInicial ? (
@@ -299,5 +309,71 @@ function NuevoUsuarioForm({
         </div>
       </form>
     </Modal>
+  );
+}
+
+// Arriba de este monto, un gerente ya no puede autorizar un caso de
+// compra por su cuenta — solo un admin (ver lib/actions/autorizacion.ts).
+function UmbralAutorizacionCard({ umbralInicial }: { umbralInicial: number }) {
+  const router = useRouter();
+  const [valor, setValor] = useState(String(umbralInicial));
+  const [guardando, setGuardando] = useState(false);
+  const [mensaje, setMensaje] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
+
+  async function guardar() {
+    const monto = Number(valor);
+    if (!Number.isFinite(monto) || monto < 0) {
+      setMensaje({ tipo: "error", texto: "Captura un número mayor o igual a cero" });
+      return;
+    }
+    setMensaje(null);
+    setGuardando(true);
+    const res = await guardarUmbralAutorizacion(monto);
+    setGuardando(false);
+    if (!res.ok) {
+      setMensaje({ tipo: "error", texto: res.error });
+      return;
+    }
+    setMensaje({ tipo: "ok", texto: "Umbral actualizado." });
+    router.refresh();
+  }
+
+  return (
+    <Card className="mb-4 p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-accent" />
+        <h2 className="font-semibold text-fg">Umbral de autorización</h2>
+      </div>
+      <p className="mb-3 text-sm text-muted">
+        Arriba de este monto, un caso de compra "por autorizar" solo lo
+        puede aprobar un administrador — un gerente lo verá de solo
+        lectura. Hoy: {formatMoney(umbralInicial)}.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          type="number"
+          step="any"
+          min="0"
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          className="w-40"
+          aria-label="Umbral de autorización en pesos"
+        />
+        <Button onClick={guardar} disabled={guardando} className="px-3 py-2 text-sm">
+          <Save className="h-4 w-4" /> {guardando ? "Guardando..." : "Guardar"}
+        </Button>
+      </div>
+      {mensaje && (
+        <p
+          className={
+            mensaje.tipo === "error"
+              ? "mt-2 text-xs text-red-600 dark:text-red-400"
+              : "mt-2 text-xs text-emerald-600 dark:text-emerald-400"
+          }
+        >
+          {mensaje.texto}
+        </p>
+      )}
+    </Card>
   );
 }

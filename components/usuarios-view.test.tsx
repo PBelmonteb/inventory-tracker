@@ -20,9 +20,24 @@ vi.mock("@/lib/actions/usuarios", () => ({
   cambiarEstadoUsuario: vi.fn(),
 }));
 
+// Evita cargar el módulo real: lib/actions/autorizacion.ts importa
+// lib/push.ts ("server-only"), que truena si un test lo importa fuera de
+// un Server Component.
+vi.mock("@/lib/actions/autorizacion", () => ({
+  guardarUmbralAutorizacion: vi.fn(),
+}));
+
 async function abrirFormularioNuevoUsuario() {
   const user = userEvent.setup();
-  render(<UsuariosView usuarios={[]} errorInicial={null} miId="yo" />);
+  render(
+    <UsuariosView
+      usuarios={[]}
+      errorInicial={null}
+      miId="yo"
+      esAdmin={false}
+      umbralInicial={50000}
+    />
+  );
   await user.click(screen.getByRole("button", { name: /nuevo usuario/i }));
   return user;
 }

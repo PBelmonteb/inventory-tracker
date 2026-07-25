@@ -15,9 +15,16 @@ import { CheckCircle2, XCircle } from "lucide-react";
 // "Rechazados", desde donde se puede editar y reenviar.
 export function AutorizarCasoForm({
   caso,
+  esAdmin,
+  umbralAdmin,
   onClose,
 }: {
   caso: CasoCompraConRelaciones | null;
+  // Defensa en profundidad: proveedores-view.tsx ya no debería dejar a un
+  // gerente llegar aquí para un caso arriba del umbral, pero por si acaso
+  // el botón "Autorizar" se deshabilita igual (ver lib/actions/autorizacion.ts).
+  esAdmin: boolean;
+  umbralAdmin: number;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -27,6 +34,9 @@ export function AutorizarCasoForm({
   const [motivo, setMotivo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+
+  const montoNumActual = Number(monto) || 0;
+  const bloqueadoPorUmbral = !esAdmin && montoNumActual > umbralAdmin;
 
   useEffect(() => {
     setCantidad(caso?.cantidad_estimada != null ? String(caso.cantidad_estimada) : "");
@@ -131,6 +141,13 @@ export function AutorizarCasoForm({
             </div>
           )}
 
+          {!rechazando && bloqueadoPorUmbral && (
+            <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+              Este caso supera el umbral de autorización — solo un
+              administrador puede autorizarlo.
+            </p>
+          )}
+
           {error && (
             <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
               {error}
@@ -154,7 +171,7 @@ export function AutorizarCasoForm({
                   <XCircle className="h-4 w-4" />
                   Rechazar
                 </Button>
-                <Button type="button" onClick={autorizar} disabled={cargando}>
+                <Button type="button" onClick={autorizar} disabled={cargando || bloqueadoPorUmbral}>
                   <CheckCircle2 className="h-4 w-4" />
                   {cargando ? "Autorizando..." : "Autorizar"}
                 </Button>

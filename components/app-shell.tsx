@@ -26,12 +26,14 @@ import {
   LogOut,
   FileText,
   Sparkles,
+  ClipboardList,
 } from "lucide-react";
 
 const NAV = [
   { href: "/inventario", label: "Inventario", icon: Boxes },
   { href: "/escanear", label: "Escanear", icon: ScanLine },
   { href: "/movimientos", label: "Movimientos", icon: ArrowLeftRight },
+  { href: "/conteos", label: "Conteos", icon: ClipboardList },
   { href: "/produccion", label: "Producción", icon: Factory },
   { href: "/proveedores", label: "Proveedores", icon: Truck },
   // Oculto para operario mientras no exista el rol "ventas" (ver

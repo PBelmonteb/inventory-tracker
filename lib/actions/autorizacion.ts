@@ -11,13 +11,48 @@ import { enviarCorreo } from "@/lib/email";
 import { enviarPush } from "@/lib/push";
 import { construirCorreoOrdenAutorizada } from "@/lib/plantillas-correo";
 import { formatearCorreoEvento } from "@/lib/email-caso";
-import type { UsuarioActor } from "@/lib/types";
+import { getConfiguracionAutorizacion } from "@/lib/data";
+import type { ConfiguracionAutorizacion, UsuarioActor } from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 async function requireGestor() {
   const profile = await getCurrentProfile();
   if (!profile || !esGestor(profile)) throw new Error("No autorizado");
+}
+
+export async function obtenerConfiguracionAutorizacion(): Promise<ConfiguracionAutorizacion> {
+  return getConfiguracionAutorizacion();
+}
+
+// Solo admin (no gerente) puede cambiar el umbral — mismo candado que la
+// policy de RLS (0026_conteo_ciclico.sql: configuracion_autorizacion_update).
+export async function guardarUmbralAutorizacion(monto: number): Promise<ActionResult> {
+  const profile = await getCurrentProfile();
+  if (!profile || profile.rol !== "admin")
+    return { ok: false, error: "Solo un administrador puede cambiar el umbral" };
+  if (!Number.isFinite(monto) || monto < 0)
+    return { ok: false, error: "El umbral debe ser un número mayor o igual a cero" };
+
+  if (DEMO) {
+    store.guardarUmbralAutorizacion(monto, { id: profile.id, nombre: profile.nombre });
+    return { ok: true };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("configuracion_autorizacion")
+    .update({
+      monto_umbral_admin: monto,
+      updated_at: new Date().toISOString(),
+      updated_por_id: profile.id,
+      updated_por_nombre: profile.nombre,
+    })
+    .eq("id", true);
+  if (error) return { ok: false, error: mensajeSupabase(error) };
+  revalidatePath("/usuarios");
+  revalidatePath("/proveedores");
+  return { ok: true };
 }
 
 // Autoriza un caso "por_autorizar": lo pasa a "ordenado" y manda la orden de
@@ -38,6 +73,17 @@ export async function autorizarCasoCompra(
 
   const yo = await getCurrentProfile();
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  // Nivel de aprobación por monto: arriba del umbral, un gerente ya no
+  // basta — se necesita admin (rechazar sí sigue abierto a cualquier
+  // gestor, porque rechazar no compromete dinero).
+  const { monto_umbral_admin } = await getConfiguracionAutorizacion();
+  if (monto > monto_umbral_admin && yo?.rol !== "admin") {
+    return {
+      ok: false,
+      error: `Este caso supera el umbral de $${monto_umbral_admin.toLocaleString("es-MX")} — solo un administrador puede autorizarlo.`,
+    };
+  }
 
   if (DEMO) {
     try {

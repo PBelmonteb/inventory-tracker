@@ -506,3 +506,73 @@ export interface SalidaPendienteConRelaciones extends SalidaPendiente {
       })
     | null;
 }
+
+/* ---------------- Conteo cíclico (physical inventory a ciegas) ---------------- */
+
+export type EstadoConteo = "abierto" | "contado" | "aplicado" | "cancelado";
+
+export const ESTADOS_CONTEO: EstadoConteo[] = [
+  "abierto",
+  "contado",
+  "aplicado",
+  "cancelado",
+];
+
+export interface Conteo {
+  id: string;
+  codigo: string; // CONT-xxxxxx
+  titulo: string;
+  estado: EstadoConteo;
+  creado_por_id: string | null;
+  creado_por_nombre: string | null;
+  aplicado_por_id: string | null;
+  aplicado_por_nombre: string | null;
+  created_at: string;
+  updated_at: string;
+  aplicado_at: string | null;
+}
+
+export interface ConteoItem {
+  id: string;
+  conteo_id: string;
+  material_id: string | null;
+  material_nombre: string;
+  material_sku: string | null;
+  ubicacion_id: string | null;
+  ubicacion_nombre: string | null;
+  // Snapshot al crear el conteo. NUNCA se manda al cliente mientras el
+  // conteo siga "abierto"/"contado" (el conteo es a ciegas) — ver
+  // lib/actions/conteos.ts. Solo se expone en la revisión (gestor) o una
+  // vez "aplicado".
+  stock_esperado: number;
+  cantidad_contada: number | null;
+  contado_por_id: string | null;
+  contado_por_nombre: string | null;
+  contado_at: string | null;
+  movimiento_id: string | null;
+  created_at: string;
+}
+
+export interface ConteoConItems extends Conteo {
+  items: ConteoItem[];
+}
+
+// Vista para la UI: stock_esperado solo viene presente si el rol/estado
+// del que mira lo permiten (conteo ya "aplicado"/"cancelado", o "contado"
+// visto por un gestor) — ver lib/actions/conteos.ts -> obtenerConteoDetalle.
+// Mientras el conteo sigue abierto, nunca llega al cliente (conteo a ciegas).
+export interface ConteoItemVista extends Omit<ConteoItem, "stock_esperado"> {
+  stock_esperado?: number;
+}
+
+export interface ConteoDetalle extends Conteo {
+  items: ConteoItemVista[];
+}
+
+/* ---------------- Umbral de autorización por monto ---------------- */
+
+export interface ConfiguracionAutorizacion {
+  monto_umbral_admin: number;
+  updated_at: string;
+  updated_por_nombre: string | null;
+}

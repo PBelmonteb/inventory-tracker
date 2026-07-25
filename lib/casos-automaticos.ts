@@ -57,7 +57,7 @@ interface ProveedorInfo {
   dias_entrega_declarado: number | null;
 }
 
-const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "ordenado"];
+const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "por_autorizar", "ordenado"];
 
 export async function generarCasosAutomaticosPorStockBajo(
   supabase: SupabaseClient,

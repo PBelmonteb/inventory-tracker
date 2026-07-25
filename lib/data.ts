@@ -13,6 +13,9 @@ import type {
   CasoVentaConRelaciones,
   Categoria,
   Cliente,
+  ConfiguracionAutorizacion,
+  Conteo,
+  ConteoConItems,
   ConvenioConRelaciones,
   HistorialPrecio,
   MaterialConRelaciones,
@@ -481,7 +484,7 @@ export async function getNotificaciones(): Promise<
 // esto cada carga de /proveedores o /clientes se pondría más lenta con el
 // tiempo. `todos: true` quita el filtro (link "Ver todos" en la UI).
 const DIAS_HISTORICO_DEFECTO = 90;
-const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "ordenado"];
+const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "por_autorizar", "ordenado"];
 const CASO_VENTA_ABIERTO = ["cotizacion", "confirmado", "en_produccion"];
 
 function fechaCorteHistorico(): string {
@@ -648,4 +651,55 @@ export async function getSalidasPendientes(
         }
       : null,
   }));
+}
+
+/* ---------------- Conteo cíclico ---------------- */
+
+export async function getConteos(): Promise<Conteo[]> {
+  if (DEMO) return store.getConteos();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("conteos")
+    .select("*")
+    .order("created_at", { ascending: false });
+  return (data as Conteo[]) ?? [];
+}
+
+// Detalle completo (con stock_esperado) — SOLO se llama desde
+// lib/actions/conteos.ts -> obtenerConteoDetalle, que decide si el
+// resultado que de verdad llega al cliente incluye stock_esperado o no
+// (el conteo es a ciegas mientras no esté "aplicado"/"cancelado", o
+// "contado" visto por alguien que no es gestor).
+export async function getConteo(conteoId: string): Promise<ConteoConItems | null> {
+  if (DEMO) return store.getConteo(conteoId);
+  const supabase = await createClient();
+  const [{ data: conteo }, { data: items }] = await Promise.all([
+    supabase.from("conteos").select("*").eq("id", conteoId).single(),
+    supabase
+      .from("conteo_items")
+      .select("*")
+      .eq("conteo_id", conteoId)
+      .order("material_nombre", { ascending: true }),
+  ]);
+  if (!conteo) return null;
+  return { ...(conteo as Conteo), items: (items as ConteoConItems["items"]) ?? [] };
+}
+
+/* ---------------- Umbral de autorización ---------------- */
+
+export async function getConfiguracionAutorizacion(): Promise<ConfiguracionAutorizacion> {
+  if (DEMO) return store.getConfiguracionAutorizacion();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("configuracion_autorizacion")
+    .select("monto_umbral_admin, updated_at, updated_por_nombre")
+    .eq("id", true)
+    .single();
+  return (
+    (data as ConfiguracionAutorizacion) ?? {
+      monto_umbral_admin: 50000,
+      updated_at: new Date().toISOString(),
+      updated_por_nombre: null,
+    }
+  );
 }

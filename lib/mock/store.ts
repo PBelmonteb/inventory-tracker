@@ -16,6 +16,10 @@ import type {
   CasoVentaItem,
   Categoria,
   Cliente,
+  ConfiguracionAutorizacion,
+  Conteo,
+  ConteoConItems,
+  ConteoItem,
   Convenio,
   ConvenioConRelaciones,
   EstadoCasoCompra,
@@ -90,6 +94,9 @@ interface DB {
   // Timeline por caso (estilo Salesforce).
   casos_compra_eventos: CasoCompraEvento[];
   casos_venta_eventos: CasoVentaEvento[];
+  conteos: Conteo[];
+  conteo_items: ConteoItem[];
+  configuracion_autorizacion: ConfiguracionAutorizacion;
 }
 
 const g = globalThis as unknown as { __inventarioDemoDB?: DB };
@@ -202,6 +209,21 @@ if (!g.__inventarioDemoDB) {
   }
   // Timeline de casos de venta (feature posterior).
   if (!viejo.casos_venta_eventos) viejo.casos_venta_eventos = [];
+  // Conteo cíclico + umbral de autorización (feature posterior).
+  if (!viejo.conteos) viejo.conteos = [];
+  if (!viejo.conteo_items) viejo.conteo_items = [];
+  if (!viejo.configuracion_autorizacion) {
+    viejo.configuracion_autorizacion = {
+      monto_umbral_admin: 50000,
+      updated_at: new Date().toISOString(),
+      updated_por_nombre: null,
+    };
+  }
+  for (const c of viejo.casos_compra) {
+    if (c.creado_por_id === undefined) c.creado_por_id = null;
+    if (c.creado_por_nombre === undefined) c.creado_por_nombre = null;
+    if (c.motivo_rechazo === undefined) c.motivo_rechazo = null;
+  }
 }
 const db: DB = g.__inventarioDemoDB;
 
@@ -210,6 +232,7 @@ const db: DB = g.__inventarioDemoDB;
 const CASO_COMPRA_ABIERTO: EstadoCasoCompra[] = [
   "pendiente",
   "cotizando",
+  "por_autorizar",
   "ordenado",
 ];
 
@@ -2333,5 +2356,181 @@ export const store = {
         : `Se te asignó la salida pendiente de "${detalle}.`;
       notificarAsignacion(usuarioId, msg, { salida_pendiente_id: sp.id });
     }
+  },
+
+  /* ---------------- Conteo cíclico ---------------- */
+
+  getConteos(): Conteo[] {
+    return [...db.conteos].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  },
+
+  getConteo(id: string): ConteoConItems | null {
+    const c = db.conteos.find((x) => x.id === id);
+    if (!c) return null;
+    const items = db.conteo_items
+      .filter((it) => it.conteo_id === id)
+      .sort((a, b) => a.material_nombre.localeCompare(b.material_nombre));
+    return { ...c, items };
+  },
+
+  // Genera un item por cada (material, ubicación) dentro del alcance
+  // elegido (categoría/ubicación, ambos opcionales) usando el mismo
+  // desglose que ya alimenta los reportes de valor por ubicación —
+  // getStockPorUbicacionTodos().
+  crearConteo(
+    datos: { titulo: string; categoria_id: string | null; ubicacion_id: string | null },
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): Conteo {
+    if (!datos.titulo.trim()) throw new Error("El título es obligatorio");
+    const nombreUbicacion = (id: string | null) =>
+      db.ubicaciones.find((u) => u.id === id)?.nombre ?? "Sin ubicación";
+
+    const materialesEnAlcance = db.materiales.filter(
+      (m) => m.activo && (!datos.categoria_id || m.categoria_id === datos.categoria_id)
+    );
+    const stockPorMaterial = store.getStockPorUbicacionTodos();
+
+    const now = new Date().toISOString();
+    const conteo: Conteo = {
+      id: uid(),
+      codigo: `CONT-${Date.now().toString().slice(-6)}`,
+      titulo: datos.titulo.trim(),
+      estado: "abierto",
+      creado_por_id: actor.id,
+      creado_por_nombre: actor.nombre,
+      aplicado_por_id: null,
+      aplicado_por_nombre: null,
+      created_at: now,
+      updated_at: now,
+      aplicado_at: null,
+    };
+
+    const items: ConteoItem[] = [];
+    for (const m of materialesEnAlcance) {
+      const filas = stockPorMaterial[m.id] ?? [
+        { ubicacion_id: m.ubicacion_id, ubicacion_nombre: nombreUbicacion(m.ubicacion_id), stock: m.stock_actual },
+      ];
+      for (const f of filas) {
+        if (datos.ubicacion_id && f.ubicacion_id !== datos.ubicacion_id) continue;
+        items.push({
+          id: uid(),
+          conteo_id: conteo.id,
+          material_id: m.id,
+          material_nombre: m.nombre,
+          material_sku: m.sku,
+          ubicacion_id: f.ubicacion_id,
+          ubicacion_nombre: f.ubicacion_nombre,
+          stock_esperado: f.stock,
+          cantidad_contada: null,
+          contado_por_id: null,
+          contado_por_nombre: null,
+          contado_at: null,
+          movimiento_id: null,
+          created_at: now,
+        });
+      }
+    }
+    if (items.length === 0) throw new Error("No hay materiales en ese alcance");
+
+    db.conteos.push(conteo);
+    db.conteo_items.push(...items);
+    return conteo;
+  },
+
+  capturarConteoItem(
+    itemId: string,
+    cantidad: number,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const it = db.conteo_items.find((x) => x.id === itemId);
+    if (!it) throw new Error("Item de conteo no encontrado");
+    const c = db.conteos.find((x) => x.id === it.conteo_id);
+    if (!c) throw new Error("Conteo no encontrado");
+    if (c.estado !== "abierto")
+      throw new Error("Este conteo ya no está abierto para captura");
+
+    it.cantidad_contada = cantidad;
+    it.contado_por_id = actor.id;
+    it.contado_por_nombre = actor.nombre;
+    it.contado_at = new Date().toISOString();
+
+    const faltan = db.conteo_items.some(
+      (x) => x.conteo_id === c.id && x.cantidad_contada === null
+    );
+    if (!faltan) {
+      c.estado = "contado";
+      c.updated_at = new Date().toISOString();
+    }
+  },
+
+  // Cierre manual (gestor): pasa a "contado" aunque falten items sin
+  // capturar — para cuando algo no se pudo contar físicamente.
+  cerrarConteo(id: string): void {
+    const c = db.conteos.find((x) => x.id === id);
+    if (!c) throw new Error("Conteo no encontrado");
+    if (c.estado !== "abierto") throw new Error("Este conteo ya no está abierto");
+    c.estado = "contado";
+    c.updated_at = new Date().toISOString();
+  },
+
+  cancelarConteo(id: string): void {
+    const c = db.conteos.find((x) => x.id === id);
+    if (!c) throw new Error("Conteo no encontrado");
+    if (c.estado === "aplicado") throw new Error("Un conteo ya aplicado no se puede cancelar");
+    c.estado = "cancelado";
+    c.updated_at = new Date().toISOString();
+  },
+
+  // Espejo de la RPC aplicar_conteo (0026_conteo_ciclico.sql): por cada
+  // item con varianza real, reusa aplicarMovimiento tipo "ajuste" — que ya
+  // sabe fijar el stock de esa ubicación al valor exacto, ver más arriba
+  // en este archivo. Items sin varianza no generan movimiento.
+  aplicarConteo(
+    id: string,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.conteos.find((x) => x.id === id);
+    if (!c) throw new Error("Conteo no encontrado");
+    if (c.estado !== "contado") throw new Error("Este conteo no está listo para aplicarse");
+
+    const items = db.conteo_items.filter((x) => x.conteo_id === id);
+    for (const it of items) {
+      if (
+        !it.material_id ||
+        it.cantidad_contada === null ||
+        it.cantidad_contada === it.stock_esperado
+      )
+        continue;
+      const mov = store.aplicarMovimiento(it.material_id, "ajuste", it.cantidad_contada, {
+        nota: `Conteo cíclico — ${c.codigo}`,
+        referencia: c.codigo,
+        costo: null,
+        ubicacion_id: it.ubicacion_id,
+      });
+      it.movimiento_id = mov.id;
+    }
+
+    c.estado = "aplicado";
+    c.aplicado_por_id = actor.id;
+    c.aplicado_por_nombre = actor.nombre;
+    c.aplicado_at = new Date().toISOString();
+    c.updated_at = c.aplicado_at;
+  },
+
+  /* ---------------- Umbral de autorización ---------------- */
+
+  getConfiguracionAutorizacion(): ConfiguracionAutorizacion {
+    return db.configuracion_autorizacion;
+  },
+
+  guardarUmbralAutorizacion(
+    monto: number,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    db.configuracion_autorizacion = {
+      monto_umbral_admin: monto,
+      updated_at: new Date().toISOString(),
+      updated_por_nombre: actor.nombre,
+    };
   },
 };

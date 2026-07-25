@@ -6,6 +6,9 @@ import type {
   BomItem,
   Categoria,
   Cliente,
+  ConfiguracionAutorizacion,
+  Conteo,
+  ConteoItem,
   Convenio,
   CasoCompraEvento,
   CasoVentaEvento,
@@ -71,6 +74,9 @@ export function makeSeed(): {
   solicitudes_compra: SolicitudCompra[];
   casos_compra_eventos: CasoCompraEvento[];
   casos_venta_eventos: CasoVentaEvento[];
+  conteos: Conteo[];
+  conteo_items: ConteoItem[];
+  configuracion_autorizacion: ConfiguracionAutorizacion;
 } {
   const categorias: Categoria[] = [
     { id: "cat-perfiles", nombre: "Perfiles de aluminio", created_at: diasAtras(60) },
@@ -615,5 +621,12 @@ export function makeSeed(): {
     solicitudes_compra,
     casos_compra_eventos,
     casos_venta_eventos: [],
+    conteos: [],
+    conteo_items: [],
+    configuracion_autorizacion: {
+      monto_umbral_admin: 50000,
+      updated_at: diasAtras(60),
+      updated_por_nombre: null,
+    },
   };
 }
