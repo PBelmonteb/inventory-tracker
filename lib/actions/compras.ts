@@ -210,8 +210,10 @@ export async function recibirCasoCompra(
 }
 
 // Registra una solicitud de cotización (el correo al proveedor se abre en el
-// cliente del usuario vía mailto). Crea el caso en estado "cotizando" y marca
-// como atendidas las alertas abiertas del material.
+// cliente del usuario vía mailto). Crea el caso en estado "pendiente" (todavía
+// no hay precio cerrado, por eso nunca pasa por autorización — a diferencia
+// de "Nuevo caso" manual, aquí se está PIDIENDO precio, no confirmándolo) y
+// marca como atendidas las alertas abiertas del material.
 export async function solicitarCotizacion(
   formData: FormData
 ): Promise<ActionResult> {
@@ -252,7 +254,7 @@ export async function solicitarCotizacion(
         cantidad_estimada,
         referencia,
         origen,
-        estado: "cotizando",
+        estado: "pendiente",
       });
       if (material_id)
         store.atenderNotificacionesDeMaterial(material_id, caso.id);
@@ -274,7 +276,7 @@ export async function solicitarCotizacion(
         cantidad_estimada,
         referencia,
         origen,
-        estado: "cotizando",
+        estado: "pendiente",
       })
       .select("id")
       .single();
@@ -302,9 +304,10 @@ export async function solicitarCotizacion(
 // Envía una cotización para un caso YA EXISTENTE (a diferencia de
 // solicitarCotizacion, que siempre crea uno nuevo): se usa cuando el
 // usuario abre el formulario de correo desde el link del título de un
-// caso en /proveedores, en vez de desde el detalle del material. Solo
-// avanza el estado pendiente -> cotizando (no retrocede uno que ya esté
-// más adelante); el asunto/cuerpo editados quedan como título/descripción.
+// caso en /proveedores, en vez de desde el detalle del material. Ya no
+// avanza el estado (antes pasaba pendiente -> cotizando) — pedir
+// cotización no cambia en qué paso del flujo está el caso; el
+// asunto/cuerpo editados quedan como título/descripción.
 export async function enviarCotizacionCasoExistente(
   casoId: string,
   formData: FormData
@@ -349,13 +352,11 @@ export async function enviarCotizacionCasoExistente(
       .single();
     if (errCaso || !caso) return { ok: false, error: "Caso no encontrado" };
 
-    const nuevoEstado = caso.estado === "pendiente" ? "cotizando" : caso.estado;
     const { error } = await supabase
       .from("casos_compra")
       .update({
         titulo,
         descripcion,
-        estado: nuevoEstado,
         updated_at: new Date().toISOString(),
         ...(monto_estimado !== null ? { monto_estimado } : {}),
         ...(cantidad_estimada !== null ? { cantidad_estimada } : {}),

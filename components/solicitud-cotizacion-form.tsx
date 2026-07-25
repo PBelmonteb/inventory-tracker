@@ -2,7 +2,8 @@
 
 // Compone una solicitud de cotización al proveedor del material:
 // abre el cliente de correo del usuario (mailto:) con el mensaje pre-redactado
-// y registra el caso de compra en estado "cotizando".
+// y registra el caso de compra en estado "pendiente" (todavía no hay precio
+// cerrado, así que nunca pasa por autorización).
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";

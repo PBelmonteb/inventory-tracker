@@ -1,7 +1,9 @@
 import { ProveedoresView } from "@/components/proveedores-view";
+import { getCurrentProfile, esGestor } from "@/lib/auth";
 import { listarUsuariosParaAsignar } from "@/lib/actions/usuarios";
 import {
   getCasosCompra,
+  getConvenios,
   getMateriales,
   getNotificaciones,
   getProveedores,
@@ -9,20 +11,18 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export default async function ProveedoresPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ todos?: string }>;
-}) {
-  const { todos } = await searchParams;
-  const verTodos = todos === "1";
-  // getNotificaciones dispara la sincronización idempotente de alertas.
-  const [notificaciones, casos, proveedores, materiales, usuariosRes] =
+export default async function ProveedoresPage() {
+  // Siempre trae el historial completo: la pestaña "Casos del mes" lo
+  // necesita de todos modos, y las demás pestañas filtran este mismo
+  // arreglo en el cliente (ver components/proveedores-view.tsx).
+  const [profile, notificaciones, casos, proveedores, materiales, convenios, usuariosRes] =
     await Promise.all([
+      getCurrentProfile(),
       getNotificaciones(),
-      getCasosCompra({ todos: verTodos }),
+      getCasosCompra({ todos: true }),
       getProveedores(),
       getMateriales(),
+      getConvenios(),
       listarUsuariosParaAsignar(),
     ]);
 
@@ -39,8 +39,9 @@ export default async function ProveedoresPage({
       proveedores={proveedores}
       materiales={opciones}
       materialesCompletos={materiales}
+      convenios={convenios}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
-      verTodos={verTodos}
+      esGestor={esGestor(profile)}
     />
   );
 }

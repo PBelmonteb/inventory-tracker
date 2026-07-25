@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useNotificaciones } from "@/components/notificaciones-provider";
+import { PushSubscribeButton } from "@/components/push-subscribe-button";
 import type { NotificacionConRelaciones } from "@/lib/types";
-import { Bell, X, AlertTriangle, PackageX, UserCheck } from "lucide-react";
+import { Bell, X, AlertTriangle, PackageX, UserCheck, ShieldCheck } from "lucide-react";
 
 const NIVEL = {
   bajo: {
@@ -28,13 +29,22 @@ const ASIGNACION = {
   label: "Asignación",
 } as const;
 
+const AUTORIZACION = {
+  Icon: ShieldCheck,
+  text: "text-accent",
+  chip: "bg-accent/10 text-accent",
+  label: "Autorización",
+} as const;
+
 function metaDe(n: NotificacionConRelaciones) {
   if (n.tipo === "asignacion") return ASIGNACION;
+  if (n.tipo === "autorizacion") return AUTORIZACION;
   return NIVEL[n.nivel ?? "bajo"];
 }
 
-// A dónde lleva el link de una notificación de asignación (no hay material).
-function hrefAsignacion(n: NotificacionConRelaciones): string | null {
+// A dónde lleva el link de una notificación sin material (asignación o
+// autorización — ambas siempre apuntan a un caso, no a un material).
+function hrefSinMaterial(n: NotificacionConRelaciones): string | null {
   if (n.caso_compra_id) return "/proveedores";
   if (n.caso_venta_id || n.salida_pendiente_id) return "/clientes";
   return null;
@@ -88,9 +98,12 @@ export function NotificacionesBell({
             (variant === "mobile" ? "right-0" : "left-0")
           }
         >
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <p className="text-sm font-semibold text-fg">Notificaciones</p>
-            <span className="text-xs text-faint">{count} activas</span>
+          <div className="border-b border-line px-4 py-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-fg">Notificaciones</p>
+              <span className="text-xs text-faint">{count} activas</span>
+            </div>
+            <PushSubscribeButton />
           </div>
           {abiertas.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted">
@@ -101,9 +114,9 @@ export function NotificacionesBell({
               {abiertas.map((n) => {
                 const meta = metaDe(n);
                 const Icon = meta.Icon;
-                const esAsignacion = n.tipo === "asignacion";
-                const href = esAsignacion
-                  ? hrefAsignacion(n)
+                const sinMaterial = n.tipo === "asignacion" || n.tipo === "autorizacion";
+                const href = sinMaterial
+                  ? hrefSinMaterial(n)
                   : n.materiales
                     ? `/materiales/${n.materiales.id}`
                     : null;
@@ -122,11 +135,11 @@ export function NotificacionesBell({
                           onClick={() => setAbierto(false)}
                           className="mt-1 block text-sm font-medium text-fg hover:text-accent"
                         >
-                          {esAsignacion ? "Ver caso" : n.materiales!.nombre}
+                          {sinMaterial ? "Ver caso" : n.materiales!.nombre}
                         </Link>
                       ) : (
                         <p className="mt-1 text-sm font-medium text-fg">
-                          {esAsignacion ? "Asignación" : "Material"}
+                          {sinMaterial ? meta.label : "Material"}
                         </p>
                       )}
                       <p className="mt-0.5 text-xs text-muted">{n.mensaje}</p>

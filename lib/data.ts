@@ -506,7 +506,7 @@ export async function getCasosCompra(
   let query = supabase
     .from("casos_compra")
     .select(
-      "*, proveedores(id,nombre), materiales(id,nombre,sku), solicitudes_compra!casos_compra_solicitud_id_fkey(codigo)"
+      "*, proveedores(id,nombre), materiales(id,nombre,sku,unidad), solicitudes_compra!casos_compra_solicitud_id_fkey(codigo)"
     );
   if (!opts.todos) {
     query = query.or(
@@ -539,7 +539,7 @@ export async function getSolicitudConCasos(
     supabase.from("solicitudes_compra").select("*").eq("id", solicitudId).single(),
     supabase
       .from("casos_compra")
-      .select("*, proveedores(id,nombre), materiales(id,nombre,sku)")
+      .select("*, proveedores(id,nombre), materiales(id,nombre,sku,unidad)")
       .eq("solicitud_id", solicitudId),
   ]);
   if (!solicitud) return null;

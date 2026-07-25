@@ -27,6 +27,7 @@
     "resend": "^6.17.2",
     "server-only": "^0.0.1",
     "tailwind-merge": "^2.6.0",
+    "web-push": "^3.6.7",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
@@ -37,6 +38,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.5",
     "@types/react-dom": "^19.0.3",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.4.20",
     "jsdom": "^29.1.1",

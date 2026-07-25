@@ -3,18 +3,19 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, Select } from "@/components/ui";
+import { Button, Card, Input, Select } from "@/components/ui";
 import {
   CasoCompraForm,
   type PrefillCasoCompra,
 } from "@/components/caso-compra-form";
-import { ResponsableSelect } from "@/components/responsable-select";
+import { CasoCompraCard } from "@/components/caso-compra-card";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
 import { SimuladorEmail } from "@/components/simulador-email";
 import { RecibirCompraForm } from "@/components/recibir-compra-form";
 import { MarcarOrdenadoForm } from "@/components/marcar-ordenado-form";
+import { AutorizarCasoForm } from "@/components/autorizar-caso-form";
+import { EditarCasoRechazadoForm } from "@/components/editar-caso-rechazado-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
-import { InfoTooltip } from "@/components/info-tooltip";
 import { SolicitudCotizacionForm } from "@/components/solicitud-cotizacion-form";
 import { CasoDetalleModal } from "@/components/caso-detalle-modal";
 import { NuevoProveedorModal } from "@/components/nuevo-proveedor-modal";
@@ -23,42 +24,37 @@ import {
   cambiarEstadoCasoCompra,
   descartarNotificacion,
 } from "@/lib/actions/compras";
+import { eliminarCasoCompra } from "@/lib/actions/autorizacion";
 import { revisarReposicionAutomatica } from "@/lib/actions/casos-automaticos";
+import { esConvenioVigente } from "@/lib/convenios";
 import { DEMO } from "@/lib/config";
-import { formatDate, formatMoney, formatQty } from "@/lib/utils";
+import { formatDate, formatMoney, formatQty, normalizarTexto } from "@/lib/utils";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
 import type {
   CasoCompraConRelaciones,
+  ConvenioConRelaciones,
   EstadoCasoCompra,
   MaterialConRelaciones,
-  NivelRiesgoStock,
   NotificacionConRelaciones,
   OrigenCasoCompra,
   Proveedor,
 } from "@/lib/types";
 import {
+  Ban,
   BellRing,
-  Eye,
   Mail,
+  PackageCheck,
+  Pencil,
   PencilLine,
   Plus,
   RefreshCw,
-  TriangleAlert,
+  Search,
+  ShieldCheck,
+  Trash2,
   X,
 } from "lucide-react";
 
 type MaterialOpcion = { id: string; nombre: string; sku: string | null };
-
-const ESTADO_COMPRA_META: Record<
-  EstadoCasoCompra,
-  { label: string; tone: "ok" | "warn" | "danger" | "neutral" | "accent" }
-> = {
-  pendiente: { label: "Pendiente", tone: "warn" },
-  cotizando: { label: "Cotizando", tone: "accent" },
-  ordenado: { label: "Ordenado", tone: "accent" },
-  recibido: { label: "Recibido", tone: "ok" },
-  cancelado: { label: "Cancelado", tone: "neutral" },
-};
 
 const ORIGEN_META: Record<
   OrigenCasoCompra,
@@ -69,18 +65,18 @@ const ORIGEN_META: Record<
   correo: { label: "Correo", Icon: Mail, barra: "bg-accent" },
 };
 
-const NIVEL_RIESGO_META: Record<
-  NivelRiesgoStock,
-  { label: string; tone: "ok" | "warn" | "danger" | "neutral" | "accent" }
-> = {
-  critico: { label: "Riesgo crítico", tone: "danger" },
-  alto: { label: "Riesgo alto", tone: "warn" },
-  medio: { label: "Riesgo medio", tone: "neutral" },
-};
-
-const ABIERTOS: EstadoCasoCompra[] = ["pendiente", "cotizando", "ordenado"];
-
 const SIETE_DIAS = 7 * 24 * 60 * 60 * 1000;
+// "cotizando" es un estado legado (ver lib/types.ts) — se trata igual que
+// "pendiente" en todas partes de esta vista.
+const PENDIENTE_ESTADOS: EstadoCasoCompra[] = ["pendiente", "cotizando"];
+const ABIERTOS: EstadoCasoCompra[] = [
+  "pendiente",
+  "cotizando",
+  "por_autorizar",
+  "ordenado",
+];
+
+type TabId = "pendientes" | "por_autorizar" | "en_espera" | "rechazados" | "casos_del_mes";
 
 export function ProveedoresView({
   notificaciones,
@@ -88,38 +84,36 @@ export function ProveedoresView({
   proveedores,
   materiales,
   materialesCompletos,
+  convenios,
   usuarios,
-  verTodos,
+  esGestor,
 }: {
   notificaciones: NotificacionConRelaciones[];
   casos: CasoCompraConRelaciones[];
   proveedores: Proveedor[];
   materiales: MaterialOpcion[];
   materialesCompletos: MaterialConRelaciones[];
+  convenios: ConvenioConRelaciones[];
   usuarios: UsuarioAsignable[];
-  // Por defecto la lista solo trae casos abiertos + cerrados de los
-  // últimos ~90 días (lib/data.ts) — este toggle pide todo el histórico.
-  verTodos: boolean;
+  esGestor: boolean;
 }) {
   const router = useRouter();
+  const [tab, setTab] = useState<TabId>("pendientes");
   const [formAbierto, setFormAbierto] = useState(false);
   const [proveedorAbierto, setProveedorAbierto] = useState(false);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
   const [prefill, setPrefill] = useState<PrefillCasoCompra | null>(null);
-  const [recibiendo, setRecibiendo] = useState<CasoCompraConRelaciones | null>(
-    null
-  );
-  const [ordenando, setOrdenando] = useState<CasoCompraConRelaciones | null>(
-    null
-  );
+  const [recibiendo, setRecibiendo] = useState<CasoCompraConRelaciones | null>(null);
+  const [ordenando, setOrdenando] = useState<CasoCompraConRelaciones | null>(null);
+  const [autorizando, setAutorizando] = useState<CasoCompraConRelaciones | null>(null);
+  const [editandoRechazado, setEditandoRechazado] =
+    useState<CasoCompraConRelaciones | null>(null);
   const [filtroProveedor, setFiltroProveedor] = useState("");
-  const [filtroEstado, setFiltroEstado] = useState("");
+  const [busqueda, setBusqueda] = useState("");
   const [revisando, setRevisando] = useState(false);
   const [cotizacionCaso, setCotizacionCaso] =
     useState<CasoCompraConRelaciones | null>(null);
-  const [detalleCaso, setDetalleCaso] = useState<CasoCompraConRelaciones | null>(
-    null
-  );
+  const [detalleCaso, setDetalleCaso] = useState<CasoCompraConRelaciones | null>(null);
 
   // Esta vista solo maneja alertas de stock; las de asignación (personales)
   // viven en la campana global (NotificacionesProvider/Bell), no aquí.
@@ -130,27 +124,53 @@ export function ProveedoresView({
     (n) => n.estado === "abierta" && n.tipo === "stock" && !n.caso_compra_id
   );
   const casosAbiertos = casos.filter((c) => ABIERTOS.includes(c.estado));
-  const montoPipeline = casosAbiertos.reduce(
-    (sum, c) => sum + c.monto_estimado,
-    0
-  );
+  const montoPipeline = casosAbiertos.reduce((sum, c) => sum + c.monto_estimado, 0);
   const porCorreo7d = casos.filter(
     (c) =>
       c.origen === "correo" &&
       Date.now() - new Date(c.created_at).getTime() < SIETE_DIAS
   ).length;
-  const porOrigen = (Object.keys(ORIGEN_META) as OrigenCasoCompra[]).map(
-    (origen) => ({
-      origen,
-      total: casos.filter((c) => c.origen === origen).length,
-    })
-  );
+  const porOrigen = (Object.keys(ORIGEN_META) as OrigenCasoCompra[]).map((origen) => ({
+    origen,
+    total: casos.filter((c) => c.origen === origen).length,
+  }));
 
-  const casosFiltrados = casos.filter(
-    (c) =>
-      (!filtroProveedor || c.proveedor_id === filtroProveedor) &&
-      (!filtroEstado || c.estado === filtroEstado)
-  );
+  function tieneConvenio(c: CasoCompraConRelaciones): boolean {
+    if (!c.material_id || !c.proveedor_id) return false;
+    return convenios.some(
+      (cv) =>
+        cv.material_id === c.material_id &&
+        cv.proveedor_id === c.proveedor_id &&
+        esConvenioVigente(cv)
+    );
+  }
+
+  const casosPendientes = casos.filter((c) => PENDIENTE_ESTADOS.includes(c.estado));
+  const pendientesConConvenio = casosPendientes.filter(tieneConvenio);
+  const pendientesSinConvenio = casosPendientes.filter((c) => !tieneConvenio(c));
+  const casosPorAutorizar = casos.filter((c) => c.estado === "por_autorizar");
+  const casosEnEspera = casos.filter((c) => c.estado === "ordenado");
+  const casosRechazados = casos.filter((c) => c.estado === "rechazado");
+
+  const q = normalizarTexto(busqueda);
+  const casosDelMes = casos.filter((c) => {
+    if (filtroProveedor && c.proveedor_id !== filtroProveedor) return false;
+    if (!q) return true;
+    const texto = normalizarTexto(
+      `${c.titulo} ${c.materiales?.nombre ?? ""} ${c.proveedores?.nombre ?? c.proveedor_nombre ?? ""} ${c.referencia ?? ""}`
+    );
+    return texto.includes(q);
+  });
+
+  const TABS: { id: TabId; label: string; count: number }[] = [
+    { id: "pendientes", label: "Pendientes", count: casosPendientes.length },
+    ...(esGestor
+      ? [{ id: "por_autorizar" as const, label: "Pendientes de Autorizar", count: casosPorAutorizar.length }]
+      : []),
+    { id: "en_espera", label: "Pendientes de llegar", count: casosEnEspera.length },
+    { id: "rechazados", label: "Rechazados", count: casosRechazados.length },
+    { id: "casos_del_mes", label: "Casos del mes", count: casos.length },
+  ];
 
   function abrirDesdeNotificacion(n: NotificacionConRelaciones) {
     setPrefill({
@@ -162,9 +182,9 @@ export function ProveedoresView({
     setFormAbierto(true);
   }
 
-  // Abre el formulario de correo (mailto) directo desde el nombre del caso,
-  // sin tener que ir a buscar el material en su detalle. Solo tiene sentido
-  // si el caso apunta a un material puntual (no los de varios ítems).
+  // Abre el formulario de correo (mailto) directo desde el caso, sin tener
+  // que ir a buscar el material en su detalle. Solo tiene sentido si el
+  // caso apunta a un material puntual (no los de varios ítems).
   const materialDeCaso = (caso: CasoCompraConRelaciones) =>
     caso.material_id
       ? materialesCompletos.find((m) => m.id === caso.material_id)
@@ -218,11 +238,10 @@ export function ProveedoresView({
     if (casosCreados > 0) router.refresh();
   }
 
-  async function cambiarEstado(
-    caso: CasoCompraConRelaciones,
-    estado: EstadoCasoCompra
-  ) {
-    // "Recibido" genera la entrada de stock → pide cantidad y costo.
+  // Único punto que todavía cambia el estado "a mano" (Marcar ordenado /
+  // Confirmar recepción / Cancelar) — Autorizar/Rechazar/Editar tienen sus
+  // propias acciones dedicadas que nunca dejan elegir un estado libremente.
+  async function cambiarEstado(caso: CasoCompraConRelaciones, estado: EstadoCasoCompra) {
     if (estado === "recibido" && !caso.movimiento_id) {
       if (!caso.material_id) {
         alert(
@@ -233,21 +252,49 @@ export function ProveedoresView({
       setRecibiendo(caso);
       return;
     }
-    // "Ordenado" sin cantidad ya capturada (convenio/reposición automática/
-    // cotización) quedaría invisible para "stock por llegar" en Inventario —
-    // se pide antes de completar la transición, mismo criterio que "Recibido".
     if (estado === "ordenado" && !caso.cantidad_estimada && caso.material_id) {
       setOrdenando(caso);
       return;
     }
-    if (estado === "cancelado" && !confirm("¿Cancelar este caso de compra?"))
-      return;
+    if (estado === "cancelado" && !confirm("¿Cancelar este caso de compra?")) return;
     const res = await cambiarEstadoCasoCompra(caso.id, estado);
     if (!res.ok) {
       alert(res.error);
       return;
     }
     router.refresh();
+  }
+
+  async function eliminar(casoId: string) {
+    if (!confirm("¿Eliminar este caso rechazado? No se puede deshacer.")) return;
+    const res = await eliminarCasoCompra(casoId);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  function renderLista(
+    lista: CasoCompraConRelaciones[],
+    actionsFor: (c: CasoCompraConRelaciones) => React.ReactNode
+  ) {
+    if (lista.length === 0)
+      return <p className="py-2 text-sm text-faint">No hay casos aquí.</p>;
+    return (
+      <ul className="divide-y divide-line">
+        {lista.map((c) => (
+          <CasoCompraCard
+            key={c.id}
+            caso={c}
+            usuarios={usuarios}
+            onAsignarResponsable={asignarResponsable}
+            onVerDetalle={setDetalleCaso}
+            actions={actionsFor(c)}
+          />
+        ))}
+      </ul>
+    );
   }
 
   return (
@@ -262,27 +309,17 @@ export function ProveedoresView({
             Casos de compra y alertas para cotizar a tiempo.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="secondary"
-            onClick={revisarReposicion}
-            disabled={revisando}
-          >
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={revisarReposicion} disabled={revisando}>
             <RefreshCw className={`h-4 w-4 ${revisando ? "animate-spin" : ""}`} />
             Revisar reposición ahora
           </Button>
           {DEMO && (
-            <Button
-              variant="secondary"
-              onClick={() => setSimuladorAbierto(true)}
-            >
+            <Button variant="secondary" onClick={() => setSimuladorAbierto(true)}>
               <Mail className="h-4 w-4" /> Simular correo
             </Button>
           )}
-          <Button
-            variant="secondary"
-            onClick={() => setProveedorAbierto(true)}
-          >
+          <Button variant="secondary" onClick={() => setProveedorAbierto(true)}>
             <Plus className="h-4 w-4" /> Nuevo proveedor
           </Button>
           <Button
@@ -298,11 +335,7 @@ export function ProveedoresView({
 
       {/* KPIs */}
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi
-          label="Notificaciones activas"
-          value={String(abiertas.length)}
-          alerta={abiertas.length > 0}
-        />
+        <Kpi label="Notificaciones activas" value={String(abiertas.length)} alerta={abiertas.length > 0} />
         <Kpi label="Casos abiertos" value={String(casosAbiertos.length)} />
         <Kpi label="Monto en pipeline" value={formatMoney(montoPipeline)} />
         <Kpi label="Casos por correo (7 días)" value={String(porCorreo7d)} />
@@ -331,9 +364,7 @@ export function ProveedoresView({
                 const { label, Icon, barra } = ORIGEN_META[origen];
                 return (
                   <div key={origen} className="flex items-center gap-2.5">
-                    <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${barra}`}
-                    >
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${barra}`}>
                       <Icon className="h-4 w-4 text-accent-fg" />
                     </span>
                     <div className="min-w-0 leading-tight">
@@ -355,16 +386,11 @@ export function ProveedoresView({
           <h2 className="font-semibold text-fg">Notificaciones de stock bajo</h2>
         </div>
         {abiertas.length === 0 ? (
-          <p className="py-2 text-sm text-faint">
-            Sin alertas de stock. Todo arriba del mínimo.
-          </p>
+          <p className="py-2 text-sm text-faint">Sin alertas de stock. Todo arriba del mínimo.</p>
         ) : (
           <ul className="divide-y divide-line">
             {abiertas.map((n) => (
-              <li
-                key={n.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
-              >
+              <li key={n.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                 <div className="min-w-0">
                   {n.materiales ? (
                     <Link
@@ -379,8 +405,7 @@ export function ProveedoresView({
                   <p className="mt-0.5 text-xs text-muted">
                     {n.materiales && (
                       <span className="font-semibold text-red-600 dark:text-red-400">
-                        {formatQty(n.materiales.stock_actual)} /{" "}
-                        {formatQty(n.materiales.stock_minimo, n.materiales.unidad)}
+                        {formatQty(n.materiales.stock_actual)} / {formatQty(n.materiales.stock_minimo, n.materiales.unidad)}
                       </span>
                     )}
                     {n.proveedores && <> · Proveedor: {n.proveedores.nombre}</>}
@@ -389,10 +414,7 @@ export function ProveedoresView({
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Button
-                    className="px-3 py-1.5 text-xs"
-                    onClick={() => abrirDesdeNotificacion(n)}
-                  >
+                  <Button className="px-3 py-1.5 text-xs" onClick={() => abrirDesdeNotificacion(n)}>
                     Crear caso
                   </Button>
                   <button
@@ -409,197 +431,176 @@ export function ProveedoresView({
         )}
       </Card>
 
-      {/* Casos de compra */}
-      <Card className="p-4 md:p-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <h2 className="font-semibold text-fg">Casos de compra</h2>
-            <Link
-              href={verTodos ? "/proveedores" : "/proveedores?todos=1"}
-              className="text-xs font-medium text-accent hover:underline"
-              title={
-                verTodos
-                  ? "Mostrando todo el histórico"
-                  : "Por defecto solo se muestran los casos abiertos y los cerrados de los últimos 90 días"
+      {/* Pestañas */}
+      <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-surface p-1">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={
+              "flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors " +
+              (tab === t.id ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-2 hover:text-fg")
+            }
+          >
+            {t.label}
+            <span
+              className={
+                "rounded-full px-1.5 py-0.5 text-[11px] font-semibold " +
+                (tab === t.id ? "bg-accent-fg/20" : "bg-surface-2 text-faint")
               }
             >
-              {verTodos ? "Ver solo recientes" : "Ver todos (histórico)"}
-            </Link>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <BotonExportarCSV
-              filename="casos-compra"
-              filas={casosFiltrados.map((c) => ({
-                Título: c.titulo,
-                Proveedor: c.proveedores?.nombre ?? c.proveedor_nombre ?? "",
-                Material: c.materiales?.nombre ?? "",
-                "Monto estimado": c.monto_estimado,
-                Estado: c.estado,
-                Origen: c.origen,
-                Referencia: c.referencia ?? "",
-                Fecha: c.created_at,
-              }))}
-              label="CSV"
-            />
-            <Select
-              value={filtroProveedor}
-              onChange={(e) => setFiltroProveedor(e.target.value)}
-              className="w-auto py-1.5 text-xs"
-              aria-label="Filtrar por proveedor"
-            >
-              <option value="">Todos los proveedores</option>
-              {proveedores.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={filtroEstado}
-              onChange={(e) => setFiltroEstado(e.target.value)}
-              className="w-auto py-1.5 text-xs"
-              aria-label="Filtrar por estado"
-            >
-              <option value="">Todos los estados</option>
-              {Object.entries(ESTADO_COMPRA_META).map(([valor, meta]) => (
-                <option key={valor} value={valor}>
-                  {meta.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
+              {t.count}
+            </span>
+          </button>
+        ))}
+      </div>
 
-        {casosFiltrados.length === 0 ? (
-          <p className="py-2 text-sm text-faint">No hay casos con esos filtros.</p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {casosFiltrados.map((c) => {
-              const OrigenIcon = ORIGEN_META[c.origen].Icon;
-              return (
-              <li
-                key={c.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
+      {tab === "pendientes" && (
+        <div className="space-y-4">
+          <Card className="p-4 md:p-5">
+            <h2 className="mb-3 font-semibold text-fg">Con convenio</h2>
+            {renderLista(pendientesConConvenio, (c) => (
+              <>
+                <Button className="px-2.5 py-1 text-xs" onClick={() => cambiarEstado(c, "ordenado")}>
+                  <PackageCheck className="h-3.5 w-3.5" /> Marcar ordenado
+                </Button>
+                <button
+                  onClick={() => cambiarEstado(c, "cancelado")}
+                  aria-label="Cancelar caso"
+                  title="Cancelar"
+                  className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-red-600 dark:hover:text-red-400"
+                >
+                  <Ban className="h-4 w-4" />
+                </button>
+              </>
+            ))}
+          </Card>
+          <Card className="p-4 md:p-5">
+            <h2 className="mb-3 font-semibold text-fg">Necesitan cotización</h2>
+            {renderLista(pendientesSinConvenio, (c) => (
+              <>
+                {materialDeCaso(c) && (
+                  <Button
+                    variant="secondary"
+                    className="px-2.5 py-1 text-xs"
+                    onClick={() => abrirCotizacionDesdeCaso(c)}
+                  >
+                    <Mail className="h-3.5 w-3.5" /> Cotizar
+                  </Button>
+                )}
+                <Button className="px-2.5 py-1 text-xs" onClick={() => cambiarEstado(c, "ordenado")}>
+                  <PackageCheck className="h-3.5 w-3.5" /> Marcar ordenado
+                </Button>
+                <button
+                  onClick={() => cambiarEstado(c, "cancelado")}
+                  aria-label="Cancelar caso"
+                  title="Cancelar"
+                  className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-red-600 dark:hover:text-red-400"
+                >
+                  <Ban className="h-4 w-4" />
+                </button>
+              </>
+            ))}
+          </Card>
+        </div>
+      )}
+
+      {tab === "por_autorizar" && esGestor && (
+        <Card className="p-4 md:p-5">
+          {renderLista(casosPorAutorizar, (c) => (
+            <Button className="px-2.5 py-1 text-xs" onClick={() => setAutorizando(c)}>
+              <ShieldCheck className="h-3.5 w-3.5" /> Revisar
+            </Button>
+          ))}
+        </Card>
+      )}
+
+      {tab === "en_espera" && (
+        <Card className="p-4 md:p-5">
+          {renderLista(casosEnEspera, (c) => (
+            <>
+              <Button className="px-2.5 py-1 text-xs" onClick={() => cambiarEstado(c, "recibido")}>
+                <PackageCheck className="h-3.5 w-3.5" /> Confirmar recepción
+              </Button>
+              <button
+                onClick={() => cambiarEstado(c, "cancelado")}
+                aria-label="Cancelar caso"
+                title="Cancelar"
+                className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-red-600 dark:hover:text-red-400"
               >
-                <div className="min-w-0">
-                  <p className="flex items-center gap-2 text-sm font-medium text-fg">
-                    {ABIERTOS.includes(c.estado) && materialDeCaso(c) ? (
-                      <button
-                        type="button"
-                        onClick={() => abrirCotizacionDesdeCaso(c)}
-                        title="Abrir formulario de cotización por correo"
-                        className="cursor-pointer text-left hover:text-accent hover:underline"
-                      >
-                        {c.titulo}
-                      </button>
-                    ) : (
-                      c.titulo
-                    )}
-                    {c.referencia && (
-                      <span className="text-xs font-normal text-faint">
-                        {c.referencia}
-                      </span>
-                    )}
-                    {c.solicitudes_compra && (
-                      <span
-                        title="Cotización comparativa — hay más de un proveedor para esta necesidad"
-                        className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent"
-                      >
-                        {c.solicitudes_compra.codigo}
-                      </span>
-                    )}
-                    {c.origen !== "manual" && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
-                        <OrigenIcon className="h-3 w-3" />
-                        {ORIGEN_META[c.origen].label}
-                      </span>
-                    )}
-                    {c.origen === "stock_bajo" && c.nivel_riesgo && (
-                      <>
-                        <Badge tone={NIVEL_RIESGO_META[c.nivel_riesgo].tone}>
-                          <TriangleAlert className="h-3 w-3" />
-                          {NIVEL_RIESGO_META[c.nivel_riesgo].label}
-                        </Badge>
-                        <InfoTooltip>
-                          {c.descripcion ? (
-                            <p>{c.descripcion}</p>
-                          ) : (
-                            <p>Caso generado automáticamente por la reposición de stock.</p>
-                          )}
-                          {(c.dias_cobertura_restante != null ||
-                            c.lead_time_dias_usado != null) && (
-                            <p className="mt-1.5 border-t border-line pt-1.5">
-                              {c.dias_cobertura_restante != null && (
-                                <>Cobertura al crear el caso: ~{c.dias_cobertura_restante.toFixed(1)} días. </>
-                              )}
-                              {c.lead_time_dias_usado != null && (
-                                <>Tiempo de entrega usado: ~{c.lead_time_dias_usado.toFixed(1)} días.</>
-                              )}
-                            </p>
-                          )}
-                        </InfoTooltip>
-                      </>
-                    )}
-                    {c.correo_enviado_at && (
-                      <span
-                        title={`Correo enviado automáticamente el ${formatDate(c.correo_enviado_at)}`}
-                        className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted"
-                      >
-                        <Mail className="h-3 w-3" /> Correo enviado
-                      </span>
-                    )}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {c.proveedores?.nombre ??
-                      (c.proveedor_nombre
-                        ? `${c.proveedor_nombre} (eliminado)`
-                        : "Proveedor eliminado")}
-                    {c.materiales && <> · {c.materiales.nombre}</>}
-                    {" · "}
-                    {formatMoney(c.monto_estimado)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDetalleCaso(c)}
-                    title="Ver detalle y timeline"
-                    aria-label="Ver detalle y timeline"
-                    className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-fg"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </button>
-                  <Badge tone={ESTADO_COMPRA_META[c.estado].tone}>
-                    {ESTADO_COMPRA_META[c.estado].label}
-                  </Badge>
-                  <Select
-                    value={c.estado}
-                    onChange={(e) =>
-                      cambiarEstado(c, e.target.value as EstadoCasoCompra)
-                    }
-                    className="w-auto py-1 text-xs"
-                    aria-label="Cambiar estado del caso"
-                  >
-                    {Object.entries(ESTADO_COMPRA_META).map(([valor, meta]) => (
-                      <option key={valor} value={valor}>
-                        {meta.label}
-                      </option>
-                    ))}
-                  </Select>
-                  <ResponsableSelect
-                    usuarios={usuarios}
-                    value={c.responsable_id ?? ""}
-                    onChange={(usuarioId) => asignarResponsable(c.id, usuarioId)}
-                    className="w-auto py-1 text-xs"
-                    ariaLabel="Responsable del caso"
-                  />
-                </div>
-              </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
+                <Ban className="h-4 w-4" />
+              </button>
+            </>
+          ))}
+        </Card>
+      )}
+
+      {tab === "rechazados" && (
+        <Card className="p-4 md:p-5">
+          {renderLista(casosRechazados, (c) => (
+            <>
+              <Button variant="secondary" className="px-2.5 py-1 text-xs" onClick={() => setEditandoRechazado(c)}>
+                <Pencil className="h-3.5 w-3.5" /> Editar
+              </Button>
+              <button
+                onClick={() => eliminar(c.id)}
+                aria-label="Eliminar caso"
+                title="Eliminar"
+                className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-red-600 dark:hover:text-red-400"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </>
+          ))}
+        </Card>
+      )}
+
+      {tab === "casos_del_mes" && (
+        <Card className="p-4 md:p-5">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="relative flex-1 sm:max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+              <Input
+                className="pl-9"
+                placeholder="Buscar por título, material, proveedor..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <BotonExportarCSV
+                filename="casos-compra"
+                filas={casosDelMes.map((c) => ({
+                  Título: c.titulo,
+                  Proveedor: c.proveedores?.nombre ?? c.proveedor_nombre ?? "",
+                  Material: c.materiales?.nombre ?? "",
+                  "Monto estimado": c.monto_estimado,
+                  Estado: c.estado,
+                  Origen: c.origen,
+                  Referencia: c.referencia ?? "",
+                  Fecha: c.created_at,
+                }))}
+                label="CSV"
+              />
+              <Select
+                value={filtroProveedor}
+                onChange={(e) => setFiltroProveedor(e.target.value)}
+                className="w-auto py-1.5 text-xs"
+                aria-label="Filtrar por proveedor"
+              >
+                <option value="">Todos los proveedores</option>
+                {proveedores.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          {renderLista(casosDelMes, () => null)}
+        </Card>
+      )}
 
       <CasoCompraForm
         open={formAbierto}
@@ -608,32 +609,29 @@ export function ProveedoresView({
         materiales={materiales}
         usuarios={usuarios}
         prefill={prefill}
+        esGestor={esGestor}
       />
-      <NuevoProveedorModal
-        open={proveedorAbierto}
-        onClose={() => setProveedorAbierto(false)}
-      />
+      <NuevoProveedorModal open={proveedorAbierto} onClose={() => setProveedorAbierto(false)} />
       <SimuladorEmail
         open={simuladorAbierto}
         onClose={() => setSimuladorAbierto(false)}
         proveedores={proveedores}
         casos={casos}
       />
-      <RecibirCompraForm
-        caso={recibiendo}
-        onClose={() => setRecibiendo(null)}
-      />
-      <MarcarOrdenadoForm
-        caso={ordenando}
-        onClose={() => setOrdenando(null)}
+      <RecibirCompraForm caso={recibiendo} onClose={() => setRecibiendo(null)} />
+      <MarcarOrdenadoForm caso={ordenando} onClose={() => setOrdenando(null)} />
+      <AutorizarCasoForm caso={autorizando} onClose={() => setAutorizando(null)} />
+      <EditarCasoRechazadoForm
+        caso={editandoRechazado}
+        proveedores={proveedores}
+        materiales={materiales}
+        onClose={() => setEditandoRechazado(null)}
       />
       {cotizacionCaso &&
         (() => {
           const material = materialDeCaso(cotizacionCaso);
           if (!material) return null;
-          const proveedorDelMaterial = proveedores.find(
-            (p) => p.id === material.proveedor_id
-          );
+          const proveedorDelMaterial = proveedores.find((p) => p.id === material.proveedor_id);
           return (
             <SolicitudCotizacionForm
               open={Boolean(cotizacionCaso)}

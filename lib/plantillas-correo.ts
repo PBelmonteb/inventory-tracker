@@ -102,3 +102,40 @@ export function construirCorreoOrdenConvenio(params: {
   const cuerpo = lineas.filter((l): l is string => l !== null).join("\n");
   return { asunto, cuerpo };
 }
+
+// Confirmación de orden ya autorizada por un gestor, SIN convenio de por
+// medio (a diferencia de construirCorreoOrdenConvenio) — usada cuando un
+// gestor autoriza un caso de compra "por_autorizar" en el Portal de
+// Proveedores (lib/actions/autorizacion.ts). No menciona "convenio" porque
+// puede no haberlo; el precio ya viene decidido por el gestor al autorizar.
+export function construirCorreoOrdenAutorizada(params: {
+  material: MaterialCorreo;
+  proveedorNombre: string | null;
+  cantidad: number;
+  precioUnitario: number;
+  referencia: string;
+}): CorreoProveedor {
+  const { material, proveedorNombre, cantidad, precioUnitario, referencia } = params;
+  const total = precioUnitario * cantidad;
+
+  const asunto = `Orden de compra [${referencia}] — ${material.nombre}${
+    material.sku ? ` (${material.sku})` : ""
+  }`;
+  const cuerpo = [
+    `Estimados ${proveedorNombre ?? "proveedor"},`,
+    "",
+    "Confirmamos la siguiente orden de compra:",
+    "",
+    `• Material: ${material.nombre}`,
+    `• SKU: ${material.sku ?? "—"}`,
+    `• Cantidad: ${formatQty(cantidad, material.unidad)}`,
+    `• Precio unitario: ${formatMoney(precioUnitario)}`,
+    `• Total estimado: ${formatMoney(total)}`,
+    `• Referencia: ${referencia}`,
+    "",
+    "Por favor confírmenos recepción de esta orden. Quedamos atentos.",
+    "",
+    "Saludos.",
+  ].join("\n");
+  return { asunto, cuerpo };
+}

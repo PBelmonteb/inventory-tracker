@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, esGestor } from "@/lib/auth";
 import { registrarEventoCaso } from "@/lib/eventos-caso";
 import { resolverSolicitud } from "@/lib/solicitudes";
 import { getEventosCaso, getSolicitudConCasos } from "@/lib/data";
@@ -34,6 +34,13 @@ export async function obtenerSolicitudConCasos(
 // (un caso suelto, sin solicitud). Con más de uno, agrupa una cotización
 // por proveedor bajo una solicitud nueva con su propio código — para poder
 // compararlas y elegir una ganadora después.
+//
+// Ruteo por rol (solo cuando es UN proveedor — con varios todavía se está
+// comparando precio, no hay especificaciones cerradas que autorizar): si
+// quien crea el caso es operario, entra directo a "por_autorizar" y exige
+// material + cantidad + monto de una vez (un gestor lo va a autorizar tal
+// cual, así que debe venir completo). Si es gestor, sigue como hoy
+// ("pendiente", sin exigir nada — ya tiene la autoridad para ordenar).
 export async function crearSolicitudCompra(formData: FormData): Promise<ActionResult> {
   const proveedorIds = formData
     .getAll("proveedor_ids")
@@ -46,6 +53,8 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
   const notificacion_id = String(formData.get("notificacion_id") ?? "") || null;
   const cantidadRaw = String(formData.get("cantidad_estimada") ?? "").trim();
   const cantidad_estimada = cantidadRaw ? Number(cantidadRaw) || null : null;
+  const montoRaw = String(formData.get("monto_estimado") ?? "").trim();
+  const montoEstimadoInput = montoRaw ? Number(montoRaw) || null : null;
 
   if (proveedorIds.length === 0)
     return { ok: false, error: "Selecciona al menos un proveedor" };
@@ -53,6 +62,18 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
 
   const yo = await getCurrentProfile();
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+  const esUnSoloProveedor = proveedorIds.length === 1;
+  const requiereAutorizacion = esUnSoloProveedor && Boolean(yo) && !esGestor(yo);
+
+  if (requiereAutorizacion) {
+    if (!material_id)
+      return { ok: false, error: "Selecciona un material — hace falta para mandar el caso a autorización" };
+    if (!cantidad_estimada)
+      return { ok: false, error: "Captura la cantidad estimada — hace falta para mandar el caso a autorización" };
+    if (!montoEstimadoInput)
+      return { ok: false, error: "Captura el monto estimado — hace falta para mandar el caso a autorización" };
+  }
+  const estadoInicial = requiereAutorizacion ? "por_autorizar" : "pendiente";
 
   if (DEMO) {
     try {
@@ -63,6 +84,8 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
           titulo,
           descripcion,
           cantidad_estimada,
+          monto_estimado: esUnSoloProveedor ? montoEstimadoInput ?? 0 : null,
+          estado: estadoInicial,
           responsable_id,
           notificacion_id,
         },
@@ -83,10 +106,13 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
           material_id,
           titulo,
           descripcion,
-          monto_estimado: 0,
+          monto_estimado: montoEstimadoInput ?? 0,
           cantidad_estimada,
           referencia,
+          estado: estadoInicial,
           origen: notificacion_id ? "stock_bajo" : "manual",
+          creado_por_id: actor.id,
+          creado_por_nombre: actor.nombre,
         })
         .select("id")
         .single();
@@ -177,6 +203,8 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
             cantidad_estimada,
             referencia,
             solicitud_id: solicitud.id,
+            creado_por_id: actor.id,
+            creado_por_nombre: actor.nombre,
           })
           .select("id")
           .single();

@@ -28,6 +28,7 @@ export function CasoCompraForm({
   materiales,
   usuarios,
   prefill,
+  esGestor,
 }: {
   open: boolean;
   onClose: () => void;
@@ -35,6 +36,10 @@ export function CasoCompraForm({
   materiales: MaterialOpcion[];
   usuarios: UsuarioAsignable[];
   prefill?: PrefillCasoCompra | null;
+  // Si quien crea el caso NO es gestor y solo eligió un proveedor, el caso
+  // se manda directo a autorización — material/cantidad/monto se vuelven
+  // obligatorios porque el gestor lo va a autorizar tal cual viene.
+  esGestor: boolean;
 }) {
   const router = useRouter();
   const [proveedorIds, setProveedorIds] = useState<string[]>([]);
@@ -59,6 +64,9 @@ export function CasoCompraForm({
   // exactamente un proveedor elegido — con varios, cada cotización toma
   // su propio convenio sola al crearse (lib/actions/solicitudes.ts).
   const unProveedorId = proveedorIds.length === 1 ? proveedorIds[0] : null;
+  // Mismo criterio que el servidor (lib/actions/solicitudes.ts): con más de
+  // un proveedor todavía se está comparando precio, no aplica.
+  const requiereAutorizacion = !esGestor && Boolean(unProveedorId);
 
   useEffect(() => {
     if (!open || !unProveedorId || !materialId) {
@@ -121,11 +129,14 @@ export function CasoCompraForm({
         </div>
 
         <div>
-          <Label htmlFor="cc-material">Material (opcional)</Label>
+          <Label htmlFor="cc-material">
+            Material{requiereAutorizacion ? "" : " (opcional)"}
+          </Label>
           <select
             id="cc-material"
             value={materialId}
             onChange={(e) => setMaterialId(e.target.value)}
+            required={requiereAutorizacion}
             className="w-full cursor-pointer rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/20"
           >
             <option value="">— Ninguno —</option>
@@ -169,13 +180,16 @@ export function CasoCompraForm({
         </div>
 
         <div>
-          <Label htmlFor="cc-cantidad">Cantidad estimada (opcional)</Label>
+          <Label htmlFor="cc-cantidad">
+            Cantidad estimada{requiereAutorizacion ? "" : " (opcional)"}
+          </Label>
           <Input
             id="cc-cantidad"
             name="cantidad_estimada"
             type="number"
             step="any"
             min="0"
+            required={requiereAutorizacion}
             placeholder="Ej. 150"
           />
           <p className="mt-1 text-xs text-faint">
@@ -186,7 +200,9 @@ export function CasoCompraForm({
 
         {unProveedorId && (
           <div>
-            <Label htmlFor="cc-monto">Monto estimado (MXN)</Label>
+            <Label htmlFor="cc-monto">
+              Monto estimado (MXN){requiereAutorizacion ? "" : " (opcional)"}
+            </Label>
             <Input
               ref={montoRef}
               id="cc-monto"
@@ -194,8 +210,15 @@ export function CasoCompraForm({
               type="number"
               step="any"
               min="0"
+              required={requiereAutorizacion}
               placeholder="0.00"
             />
+            {requiereAutorizacion && (
+              <p className="mt-1.5 text-xs text-muted">
+                Este caso se manda directo a autorización de un gestor —
+                revisa que material, cantidad y monto estén completos.
+              </p>
+            )}
             {convenio && (
               <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2/40 px-2.5 py-2 text-xs">
                 <span className="text-muted">

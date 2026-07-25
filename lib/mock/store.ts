@@ -50,7 +50,10 @@ import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
 import { evaluarRiesgoStock, type RiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
-import { construirCorreoOrdenConvenio } from "@/lib/plantillas-correo";
+import {
+  construirCorreoOrdenConvenio,
+  construirCorreoOrdenAutorizada,
+} from "@/lib/plantillas-correo";
 import { formatearCorreoEvento } from "@/lib/email-caso";
 import type { ResumenReposicionAutomatica } from "@/lib/casos-automaticos";
 
@@ -271,6 +274,32 @@ function notificarAsignacion(
     caso_compra_id: refs.caso_compra_id ?? null,
     caso_venta_id: refs.caso_venta_id ?? null,
     salida_pendiente_id: refs.salida_pendiente_id ?? null,
+    created_at: new Date().toISOString(),
+    resuelta_at: null,
+  });
+}
+
+// Notificación de autorización (in-app): avisa a quien creó el caso que un
+// gestor lo autorizó o rechazó. En DEMO no hay push real que mandar además
+// (la campana ya cubre ese caso) — ver lib/actions/autorizacion.ts para la
+// rama de Supabase, que sí intenta lib/push.ts.
+function notificarAutorizacion(
+  usuario_id: string,
+  mensaje: string,
+  caso_compra_id: string
+): void {
+  db.notificaciones.push({
+    id: uid(),
+    material_id: null,
+    proveedor_id: null,
+    mensaje,
+    estado: "abierta",
+    nivel: null,
+    tipo: "autorizacion",
+    usuario_id,
+    caso_compra_id,
+    caso_venta_id: null,
+    salida_pendiente_id: null,
     created_at: new Date().toISOString(),
     resuelta_at: null,
   });
@@ -1059,7 +1088,7 @@ export const store = {
         return {
           ...c,
           proveedores: p ? { id: p.id, nombre: p.nombre } : null,
-          materiales: m ? { id: m.id, nombre: m.nombre, sku: m.sku } : null,
+          materiales: m ? { id: m.id, nombre: m.nombre, sku: m.sku, unidad: m.unidad } : null,
           solicitudes_compra: s ? { codigo: s.codigo } : null,
         };
       });
@@ -1078,6 +1107,8 @@ export const store = {
       estado?: EstadoCasoCompra;
       responsable_id?: string | null;
       solicitud_id?: string | null;
+      creado_por_id?: string | null;
+      creado_por_nombre?: string | null;
     },
     notificacion_id?: string
   ): CasoCompra {
@@ -1101,6 +1132,9 @@ export const store = {
       lead_time_dias_usado: null,
       correo_enviado_at: null,
       solicitud_id: data.solicitud_id ?? null,
+      creado_por_id: data.creado_por_id ?? null,
+      creado_por_nombre: data.creado_por_nombre ?? null,
+      motivo_rechazo: null,
       created_at: now,
       updated_at: now,
     };
@@ -1204,7 +1238,6 @@ export const store = {
     c.descripcion = descripcion;
     if (montoEstimado !== null) c.monto_estimado = montoEstimado;
     if (cantidadEstimada !== null) c.cantidad_estimada = cantidadEstimada;
-    if (c.estado === "pendiente") c.estado = "cotizando";
     c.updated_at = new Date().toISOString();
     if (c.material_id) store.atenderNotificacionesDeMaterial(c.material_id, c.id);
   },
@@ -1658,7 +1691,7 @@ export const store = {
         return {
           ...c,
           proveedores: p ? { id: p.id, nombre: p.nombre } : null,
-          materiales: m ? { id: m.id, nombre: m.nombre, sku: m.sku } : null,
+          materiales: m ? { id: m.id, nombre: m.nombre, sku: m.sku, unidad: m.unidad } : null,
           solicitudes_compra: { codigo: s.codigo },
         };
       });
@@ -1675,6 +1708,8 @@ export const store = {
       titulo: string;
       descripcion: string | null;
       cantidad_estimada?: number | null;
+      monto_estimado?: number | null;
+      estado?: EstadoCasoCompra;
       responsable_id?: string | null;
       notificacion_id?: string | null;
     },
@@ -1690,11 +1725,14 @@ export const store = {
           material_id: datos.material_id,
           titulo: datos.titulo,
           descripcion: datos.descripcion,
-          monto_estimado: 0,
+          monto_estimado: datos.monto_estimado ?? 0,
           cantidad_estimada: datos.cantidad_estimada,
           referencia: `OC-${Date.now().toString().slice(-6)}`,
+          estado: datos.estado,
           responsable_id: datos.responsable_id,
           origen: datos.notificacion_id ? "stock_bajo" : "manual",
+          creado_por_id: actor.id,
+          creado_por_nombre: actor.nombre,
         },
         datos.notificacion_id ?? undefined
       );
@@ -1744,6 +1782,8 @@ export const store = {
         cantidad_estimada: datos.cantidad_estimada,
         referencia: `OC-${Date.now().toString().slice(-6)}-${casos.length}`,
         responsable_id: datos.responsable_id,
+        creado_por_id: actor.id,
+        creado_por_nombre: actor.nombre,
       });
       caso.solicitud_id = solicitud.id;
       store.registrarEventoCaso(
@@ -1821,6 +1861,145 @@ export const store = {
     const c = db.casos_compra.find((x) => x.id === casoId);
     if (!c) throw new Error("Caso no encontrado");
     store.registrarEventoCaso(casoId, "nota", texto.trim(), actor);
+  },
+
+  // Espejo de lib/actions/autorizacion.ts (rama DEMO). En DEMO no hay
+  // Resend/push reales que llamar — el correo se simula con éxito siempre
+  // (mismo criterio que el envío automático por convenio) y el push real
+  // simplemente no aplica (la campana ya notifica).
+  autorizarCasoCompra(
+    casoId: string,
+    cantidad: number,
+    monto: number,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de compra no encontrado");
+    if (c.estado !== "por_autorizar")
+      throw new Error("Este caso ya no está pendiente de autorización");
+
+    const prov = db.proveedores.find((p) => p.id === c.proveedor_id);
+    const mat = c.material_id ? db.materiales.find((m) => m.id === c.material_id) : undefined;
+    const referencia = c.referencia ?? `OC-${Date.now().toString().slice(-6)}`;
+
+    c.cantidad_estimada = cantidad;
+    c.monto_estimado = monto;
+    c.estado = "ordenado";
+
+    if (mat && prov?.contacto) {
+      const correo = construirCorreoOrdenAutorizada({
+        material: { nombre: mat.nombre, sku: mat.sku, unidad: mat.unidad },
+        proveedorNombre: prov.nombre,
+        cantidad,
+        precioUnitario: cantidad > 0 ? monto / cantidad : 0,
+        referencia,
+      });
+      c.correo_enviado_at = new Date().toISOString();
+      c.descripcion = `${c.descripcion ?? ""} Orden autorizada y enviada (simulado en modo demo).`.trim();
+      store.registrarEventoCaso(
+        casoId,
+        "correo_enviado",
+        formatearCorreoEvento(correo.asunto, correo.cuerpo),
+        actor
+      );
+    } else if (!prov?.contacto) {
+      c.descripcion = `${c.descripcion ?? ""} Orden autorizada; el proveedor no tiene correo registrado.`.trim();
+    }
+    c.updated_at = new Date().toISOString();
+
+    store.registrarEventoCaso(
+      casoId,
+      "estado_cambiado",
+      `por_autorizar → ordenado (autorizado por ${actor.nombre ?? "un gestor"})`,
+      actor
+    );
+
+    if (c.creado_por_id) {
+      notificarAutorizacion(
+        c.creado_por_id,
+        `${actor.nombre ?? "Un gestor"} autorizó tu caso de compra "${c.titulo}".`,
+        casoId
+      );
+    }
+  },
+
+  rechazarCasoCompra(
+    casoId: string,
+    motivo: string | null,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de compra no encontrado");
+    if (c.estado !== "por_autorizar")
+      throw new Error("Este caso ya no está pendiente de autorización");
+
+    c.estado = "rechazado";
+    c.motivo_rechazo = motivo;
+    c.updated_at = new Date().toISOString();
+
+    store.registrarEventoCaso(
+      casoId,
+      "estado_cambiado",
+      `por_autorizar → rechazado (${actor.nombre ?? "un gestor"})${motivo ? `: ${motivo}` : ""}`,
+      actor
+    );
+
+    if (c.creado_por_id) {
+      const mensaje = motivo
+        ? `${actor.nombre ?? "Un gestor"} rechazó tu caso de compra "${c.titulo}": ${motivo}`
+        : `${actor.nombre ?? "Un gestor"} rechazó tu caso de compra "${c.titulo}".`;
+      notificarAutorizacion(c.creado_por_id, mensaje, casoId);
+    }
+  },
+
+  editarCasoRechazado(
+    casoId: string,
+    datos: {
+      proveedor_id: string;
+      material_id: string;
+      titulo: string;
+      descripcion: string | null;
+      cantidad_estimada: number;
+      monto_estimado: number;
+    },
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de compra no encontrado");
+    if (c.estado !== "rechazado") throw new Error("Este caso ya no está rechazado");
+    const prov = db.proveedores.find((p) => p.id === datos.proveedor_id);
+    if (!prov) throw new Error("Proveedor no encontrado");
+
+    c.proveedor_id = datos.proveedor_id;
+    c.proveedor_nombre = prov.nombre;
+    c.material_id = datos.material_id;
+    c.titulo = datos.titulo;
+    c.descripcion = datos.descripcion;
+    c.cantidad_estimada = datos.cantidad_estimada;
+    c.monto_estimado = datos.monto_estimado;
+    c.estado = "por_autorizar";
+    c.motivo_rechazo = null;
+    c.updated_at = new Date().toISOString();
+
+    store.registrarEventoCaso(
+      casoId,
+      "estado_cambiado",
+      "rechazado → por_autorizar (editado y reenviado)",
+      actor
+    );
+  },
+
+  // Solo casos "rechazado" — nunca generaron movimiento de stock, borrarlos
+  // no corrompe historial (a diferencia de materiales/proveedores).
+  eliminarCasoCompraRechazado(casoId: string): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de compra no encontrado");
+    if (c.estado !== "rechazado")
+      throw new Error("Solo se pueden eliminar casos rechazados");
+    db.casos_compra = db.casos_compra.filter((x) => x.id !== casoId);
+    db.casos_compra_eventos = db.casos_compra_eventos.filter(
+      (e) => e.caso_compra_id !== casoId
+    );
   },
 
   /* ---------------- Email entrante (webhook) ---------------- */

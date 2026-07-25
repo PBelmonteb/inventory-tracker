@@ -34,7 +34,9 @@ const NAV = [
   { href: "/movimientos", label: "Movimientos", icon: ArrowLeftRight },
   { href: "/produccion", label: "Producción", icon: Factory },
   { href: "/proveedores", label: "Proveedores", icon: Truck },
-  { href: "/clientes", label: "Clientes", icon: Users },
+  // Oculto para operario mientras no exista el rol "ventas" (ver
+  // app/(app)/clientes/page.tsx para el bloqueo del lado servidor).
+  { href: "/clientes", label: "Clientes", icon: Users, ocultoOperario: true },
   { href: "/reportes", label: "Reportes", icon: BarChart3 },
   { href: "/novedades", label: "Novedades", icon: Sparkles },
   { href: "/precios", label: "Precios", icon: Tag, gestor: true },
@@ -65,7 +67,11 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const esGestor = profile.rol === "admin" || profile.rol === "gerente";
-  const items = NAV.filter((i) => !i.gestor || esGestor);
+  const items = NAV.filter(
+    (i) =>
+      (!i.gestor || esGestor) &&
+      !(i.ocultoOperario && profile.rol === "operario")
+  );
 
   async function signOut() {
     if (DEMO) {

@@ -224,8 +224,9 @@ export type EstadoNotificacion = "abierta" | "atendida" | "descartada";
 export type NivelNotificacion = "aviso" | "bajo";
 
 // "stock" = alerta global de stock bajo (como hoy); "asignacion" = te
-// asignaron un caso/salida pendiente (personal, solo la ve el destinatario).
-export type TipoNotificacion = "stock" | "asignacion";
+// asignaron un caso/salida pendiente (personal, solo la ve el destinatario);
+// "autorizacion" = tu caso de compra fue autorizado o rechazado.
+export type TipoNotificacion = "stock" | "asignacion" | "autorizacion";
 
 export interface Notificacion {
   id: string;
@@ -254,17 +255,25 @@ export interface NotificacionConRelaciones extends Notificacion {
   proveedores: Pick<Proveedor, "id" | "nombre" | "contacto"> | null;
 }
 
+// "cotizando" ya no se escribe desde la app (ver lib/actions/compras.ts)
+// pero se conserva en el tipo: Postgres no permite quitar valores de un
+// enum sin recrearlo, y algunos casos viejos/de prueba todavía lo usan.
+// La UI los trata igual que "pendiente".
 export type EstadoCasoCompra =
   | "pendiente"
   | "cotizando"
+  | "por_autorizar"
   | "ordenado"
+  | "rechazado"
   | "recibido"
   | "cancelado";
 
 export const ESTADOS_CASO_COMPRA: EstadoCasoCompra[] = [
   "pendiente",
   "cotizando",
+  "por_autorizar",
   "ordenado",
+  "rechazado",
   "recibido",
   "cancelado",
 ];
@@ -312,13 +321,19 @@ export interface CasoCompra {
   // Si no es null, este caso es una de varias cotizaciones (una por
   // proveedor) de la misma necesidad — ver SolicitudCompra.
   solicitud_id: string | null;
+  // Quién lo creó (null en automáticos/correo — solo se llena en casos
+  // manuales). Determina el ruteo a "por_autorizar" si es un operario.
+  creado_por_id: string | null;
+  creado_por_nombre: string | null;
+  // Solo si estado === "rechazado".
+  motivo_rechazo: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface CasoCompraConRelaciones extends CasoCompra {
   proveedores: Pick<Proveedor, "id" | "nombre"> | null;
-  materiales: Pick<Material, "id" | "nombre" | "sku"> | null;
+  materiales: Pick<Material, "id" | "nombre" | "sku" | "unidad"> | null;
   // Solo si solicitud_id no es null — el código para mostrar junto al de
   // este caso y agrupar visualmente las cotizaciones hermanas en la lista.
   solicitudes_compra: { codigo: string } | null;

@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { ClientesView } from "@/components/clientes-view";
+import { getCurrentProfile } from "@/lib/auth";
 import { listarUsuariosParaAsignar } from "@/lib/actions/usuarios";
 import {
   getCasosVenta,
@@ -16,6 +18,10 @@ export default async function ClientesPage({
 }) {
   const { todos } = await searchParams;
   const verTodos = todos === "1";
+  // Mientras no exista el rol "ventas" (pendiente, sesión aparte), el
+  // operario no maneja el Portal de Clientes.
+  const profile = await getCurrentProfile();
+  if (profile?.rol === "operario") redirect("/inventario");
   const [clientes, casos, salidasPendientes, materiales, usuariosRes] =
     await Promise.all([
       getClientes(),
