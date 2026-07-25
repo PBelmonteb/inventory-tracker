@@ -12,6 +12,7 @@ import { ResponsableSelect } from "@/components/responsable-select";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
 import { SimuladorEmail } from "@/components/simulador-email";
 import { RecibirCompraForm } from "@/components/recibir-compra-form";
+import { MarcarOrdenadoForm } from "@/components/marcar-ordenado-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import { InfoTooltip } from "@/components/info-tooltip";
 import { SolicitudCotizacionForm } from "@/components/solicitud-cotizacion-form";
@@ -106,6 +107,9 @@ export function ProveedoresView({
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
   const [prefill, setPrefill] = useState<PrefillCasoCompra | null>(null);
   const [recibiendo, setRecibiendo] = useState<CasoCompraConRelaciones | null>(
+    null
+  );
+  const [ordenando, setOrdenando] = useState<CasoCompraConRelaciones | null>(
     null
   );
   const [filtroProveedor, setFiltroProveedor] = useState("");
@@ -227,6 +231,13 @@ export function ProveedoresView({
         return;
       }
       setRecibiendo(caso);
+      return;
+    }
+    // "Ordenado" sin cantidad ya capturada (convenio/reposición automática/
+    // cotización) quedaría invisible para "stock por llegar" en Inventario —
+    // se pide antes de completar la transición, mismo criterio que "Recibido".
+    if (estado === "ordenado" && !caso.cantidad_estimada && caso.material_id) {
+      setOrdenando(caso);
       return;
     }
     if (estado === "cancelado" && !confirm("¿Cancelar este caso de compra?"))
@@ -611,6 +622,10 @@ export function ProveedoresView({
       <RecibirCompraForm
         caso={recibiendo}
         onClose={() => setRecibiendo(null)}
+      />
+      <MarcarOrdenadoForm
+        caso={ordenando}
+        onClose={() => setOrdenando(null)}
       />
       {cotizacionCaso &&
         (() => {

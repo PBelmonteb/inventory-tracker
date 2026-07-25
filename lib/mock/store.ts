@@ -1122,12 +1122,14 @@ export const store = {
   cambiarEstadoCasoCompra(
     id: string,
     estado: EstadoCasoCompra,
-    actor: { id: string | null; nombre: string | null } = { id: null, nombre: null }
+    actor: { id: string | null; nombre: string | null } = { id: null, nombre: null },
+    cantidadEstimada?: number
   ): void {
     const c = db.casos_compra.find((x) => x.id === id);
     if (!c) throw new Error("Caso de compra no encontrado");
     const anterior = c.estado;
     c.estado = estado;
+    if (cantidadEstimada != null) c.cantidad_estimada = cantidadEstimada;
     c.updated_at = new Date().toISOString();
     store.registrarEventoCaso(c.id, "estado_cambiado", `${anterior} → ${estado}`, actor);
   },

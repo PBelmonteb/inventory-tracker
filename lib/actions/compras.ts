@@ -115,7 +115,8 @@ export async function asignarResponsableCasoCompra(
 
 export async function cambiarEstadoCasoCompra(
   id: string,
-  estado: EstadoCasoCompra
+  estado: EstadoCasoCompra,
+  cantidadEstimada?: number
 ): Promise<ActionResult> {
   if (!ESTADOS_CASO_COMPRA.includes(estado))
     return { ok: false, error: "Estado inválido" };
@@ -124,7 +125,7 @@ export async function cambiarEstadoCasoCompra(
 
   if (DEMO) {
     try {
-      store.cambiarEstadoCasoCompra(id, estado, actor);
+      store.cambiarEstadoCasoCompra(id, estado, actor, cantidadEstimada);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -137,7 +138,11 @@ export async function cambiarEstadoCasoCompra(
       .single();
     const { error } = await supabase
       .from("casos_compra")
-      .update({ estado, updated_at: new Date().toISOString() })
+      .update({
+        estado,
+        updated_at: new Date().toISOString(),
+        ...(cantidadEstimada != null ? { cantidad_estimada: cantidadEstimada } : {}),
+      })
       .eq("id", id);
     if (error) return { ok: false, error: mensajeSupabase(error) };
     await registrarEventoCaso(
