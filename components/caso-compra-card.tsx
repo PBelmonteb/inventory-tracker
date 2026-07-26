@@ -17,7 +17,7 @@ import type {
 } from "@/lib/types";
 import { BellRing, Eye, Mail, PencilLine, TriangleAlert } from "lucide-react";
 
-const ESTADO_META: Record<
+export const ESTADO_META: Record<
   EstadoCasoCompra,
   { label: string; tone: "ok" | "warn" | "danger" | "neutral" | "accent" }
 > = {

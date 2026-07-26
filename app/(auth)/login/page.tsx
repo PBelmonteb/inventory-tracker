@@ -30,7 +30,7 @@ export default function LoginPage() {
       // recién escrita llegue de una vez al servidor — con router.push, la
       // caché de navegación de Next puede reusar el árbol ya renderizado
       // (sin sesión) que se prefetcheó antes de iniciar sesión.
-      window.location.href = "/inventario";
+      window.location.href = "/inicio";
     } catch (err) {
       setError(
         err instanceof Error ? mensajeSupabase(err) : "Ocurrió un error"

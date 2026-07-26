@@ -7,7 +7,7 @@ export async function middleware(request: NextRequest) {
   if (DEMO) {
     if (request.nextUrl.pathname === "/login") {
       const url = request.nextUrl.clone();
-      url.pathname = "/inventario";
+      url.pathname = "/inicio";
       return NextResponse.redirect(url);
     }
     return NextResponse.next();

@@ -677,6 +677,7 @@ export function ProveedoresView({
         open={Boolean(detalleCaso)}
         onClose={() => setDetalleCaso(null)}
         caso={detalleCaso}
+        esGestor={esGestor}
       />
     </div>
   );

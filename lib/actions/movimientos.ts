@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
+import { getCurrentProfile } from "@/lib/auth";
 import { getStockPorUbicacion } from "@/lib/data";
 import type { StockPorUbicacion, TipoMovimiento } from "@/lib/types";
 
@@ -134,5 +135,98 @@ export async function transferirStock(
   revalidatePath("/inventario");
   revalidatePath("/movimientos");
   revalidatePath(`/materiales/${material_id}`);
+  return { ok: true };
+}
+
+// Inicia un traslado que TOMA TIEMPO (ej. entre plantas lejanas): registra
+// la salida de origen ya mismo (el material sale físicamente ahora) y deja
+// la llegada a destino pendiente — ver supabase/migrations/0027_stock_transito.sql.
+// A diferencia de transferirStock (instantáneo), aquí el material queda
+// "en tránsito" hasta que alguien confirma la llegada con recibirTraslado.
+export async function iniciarTraslado(formData: FormData): Promise<ActionResult> {
+  const material_id = String(formData.get("material_id") ?? "");
+  const origen_id = String(formData.get("origen_id") ?? "");
+  const destino_id = String(formData.get("destino_id") ?? "");
+  const cantidad = Number(formData.get("cantidad") ?? 0);
+  const nota = String(formData.get("nota") ?? "").trim() || null;
+
+  if (!material_id || !origen_id || !destino_id)
+    return { ok: false, error: "Selecciona material, origen y destino" };
+  if (origen_id === destino_id)
+    return { ok: false, error: "El origen y destino deben ser distintos" };
+  if (!Number.isFinite(cantidad) || cantidad <= 0)
+    return { ok: false, error: "La cantidad debe ser mayor a cero" };
+
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  if (DEMO) {
+    try {
+      store.iniciarTraslado({ material_id, origen_id, destino_id, cantidad, nota }, actor);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("iniciar_traslado", {
+      p_material: material_id,
+      p_origen: origen_id,
+      p_destino: destino_id,
+      p_cantidad: cantidad,
+      p_nota: nota,
+    });
+    if (error) return { ok: false, error: mensajeSupabase(error) };
+  }
+
+  revalidatePath("/inventario");
+  revalidatePath("/movimientos");
+  revalidatePath("/traslados");
+  revalidatePath(`/materiales/${material_id}`);
+  return { ok: true };
+}
+
+// Confirma la llegada a destino: aplica la entrada pendiente y cierra el
+// traslado. Cualquier autenticado puede recibir — igual que registrar un
+// movimiento normal, sin gate de rol (mismo criterio que transferirStock).
+export async function recibirTraslado(traslado_id: string): Promise<ActionResult> {
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  if (DEMO) {
+    try {
+      store.recibirTraslado(traslado_id, actor);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("recibir_traslado", { p_traslado: traslado_id });
+    if (error) return { ok: false, error: mensajeSupabase(error) };
+  }
+
+  revalidatePath("/inventario");
+  revalidatePath("/movimientos");
+  revalidatePath("/traslados");
+  return { ok: true };
+}
+
+// Cancela un traslado en tránsito: regresa el material a origen (entrada
+// compensatoria, nunca se reescribe el movimiento de salida ya hecho).
+export async function cancelarTraslado(traslado_id: string): Promise<ActionResult> {
+  if (DEMO) {
+    try {
+      store.cancelarTraslado(traslado_id);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("cancelar_traslado", { p_traslado: traslado_id });
+    if (error) return { ok: false, error: mensajeSupabase(error) };
+  }
+
+  revalidatePath("/inventario");
+  revalidatePath("/movimientos");
+  revalidatePath("/traslados");
   return { ok: true };
 }

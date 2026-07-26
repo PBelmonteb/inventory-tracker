@@ -31,6 +31,7 @@ export function InventarioView({
   proveedores,
   comprometido = {},
   porLlegar = {},
+  enTransito = {},
   esGestor,
 }: {
   materiales: MaterialConRelaciones[];
@@ -39,6 +40,11 @@ export function InventarioView({
   proveedores: Proveedor[];
   comprometido?: Record<string, number>;
   porLlegar?: Record<string, number>;
+  // Traslados propios en camino entre ubicaciones (ver /traslados) — cuenta
+  // como "va a volver a estar disponible" igual que una compra por llegar,
+  // por eso se suma en Proyectado; se muestra aparte solo en /traslados,
+  // no aquí, para no saturar más esta tabla ya densa.
+  enTransito?: Record<string, number>;
   esGestor: boolean;
 }) {
   const router = useRouter();
@@ -127,7 +133,12 @@ export function InventarioView({
   }
 
   function proyectado(m: MaterialConRelaciones): number {
-    return m.stock_actual + (porLlegar[m.id] ?? 0) - (comprometido[m.id] ?? 0);
+    return (
+      m.stock_actual +
+      (porLlegar[m.id] ?? 0) +
+      (enTransito[m.id] ?? 0) -
+      (comprometido[m.id] ?? 0)
+    );
   }
 
   function exportarInventarioCSV() {

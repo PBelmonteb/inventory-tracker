@@ -27,19 +27,31 @@ import {
   FileText,
   Sparkles,
   ClipboardList,
+  Grid3x3,
+  Award,
+  GitBranch,
+  Home,
+  Inbox,
+  Route,
 } from "lucide-react";
 
 const NAV = [
+  { href: "/inicio", label: "Inicio", icon: Home },
+  { href: "/aprobaciones", label: "Aprobaciones", icon: Inbox, gestor: true },
   { href: "/inventario", label: "Inventario", icon: Boxes },
   { href: "/escanear", label: "Escanear", icon: ScanLine },
   { href: "/movimientos", label: "Movimientos", icon: ArrowLeftRight },
   { href: "/conteos", label: "Conteos", icon: ClipboardList },
+  { href: "/traslados", label: "Traslados", icon: Route },
   { href: "/produccion", label: "Producción", icon: Factory },
   { href: "/proveedores", label: "Proveedores", icon: Truck },
   // Oculto para operario mientras no exista el rol "ventas" (ver
   // app/(app)/clientes/page.tsx para el bloqueo del lado servidor).
   { href: "/clientes", label: "Clientes", icon: Users, ocultoOperario: true },
   { href: "/reportes", label: "Reportes", icon: BarChart3 },
+  { href: "/clasificacion", label: "Clasificación", icon: Grid3x3, gestor: true },
+  { href: "/scorecard-proveedores", label: "Scorecard", icon: Award, gestor: true },
+  { href: "/mrp", label: "MRP", icon: GitBranch, gestor: true },
   { href: "/novedades", label: "Novedades", icon: Sparkles },
   { href: "/precios", label: "Precios", icon: Tag, gestor: true },
   { href: "/importar", label: "Importar", icon: Upload, gestor: true },

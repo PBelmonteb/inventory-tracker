@@ -235,6 +235,9 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
 
 // Elige la cotización ganadora de una solicitud: las demás abiertas se
 // cancelan solas (lib/solicitudes.ts, compartida con recibirCasoCompra).
+// Gate agregado al centralizar esto en /aprobaciones — antes cualquier
+// autenticado podía elegir ganadora (hueco real, sin relación con esta
+// feature; el resto de las decisiones de compra sí eran gestor-only).
 export async function elegirGanadora(
   solicitudId: string,
   casoGanadorId: string
@@ -243,6 +246,7 @@ export async function elegirGanadora(
     return { ok: false, error: "Datos inválidos" };
 
   const yo = await getCurrentProfile();
+  if (!esGestor(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {

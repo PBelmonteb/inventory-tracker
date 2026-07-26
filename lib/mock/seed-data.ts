@@ -20,6 +20,7 @@ import type {
   Proveedor,
   SalidaPendiente,
   SolicitudCompra,
+  Traslado,
   Ubicacion,
 } from "@/lib/types";
 
@@ -77,6 +78,7 @@ export function makeSeed(): {
   conteos: Conteo[];
   conteo_items: ConteoItem[];
   configuracion_autorizacion: ConfiguracionAutorizacion;
+  traslados: Traslado[];
 } {
   const categorias: Categoria[] = [
     { id: "cat-perfiles", nombre: "Perfiles de aluminio", created_at: diasAtras(60) },
@@ -628,5 +630,6 @@ export function makeSeed(): {
       updated_at: diasAtras(60),
       updated_por_nombre: null,
     },
+    traslados: [],
   };
 }

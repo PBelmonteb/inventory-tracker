@@ -576,3 +576,47 @@ export interface ConfiguracionAutorizacion {
   updated_at: string;
   updated_por_nombre: string | null;
 }
+
+/* ---------------- Stock en tránsito ---------------- */
+
+// Traslado entre ubicaciones que TOMA TIEMPO (ej. entre plantas lejanas):
+// a diferencia de transferirStock (instantáneo, salida+entrada en el mismo
+// momento), aquí la salida se registra ya pero la entrada queda pendiente
+// hasta que alguien confirma la llegada — mientras tanto el material no
+// cuenta en NINGUNA ubicación, está "en tránsito" (ver getEnTransito en
+// lib/data.ts).
+export type EstadoTraslado = "en_transito" | "recibido" | "cancelado";
+
+export const ESTADOS_TRASLADO: EstadoTraslado[] = [
+  "en_transito",
+  "recibido",
+  "cancelado",
+];
+
+export interface Traslado {
+  id: string;
+  codigo: string; // TRAS-xxxxxx
+  // Snapshot (historial autónomo): sobrevive a que el material se elimine.
+  material_id: string | null;
+  material_nombre: string;
+  material_sku: string | null;
+  unidad: string;
+  cantidad: number;
+  origen_id: string | null;
+  origen_nombre: string | null;
+  destino_id: string | null;
+  destino_nombre: string | null;
+  estado: EstadoTraslado;
+  nota: string | null;
+  creado_por_id: string | null;
+  creado_por_nombre: string | null;
+  recibido_por_id: string | null;
+  recibido_por_nombre: string | null;
+  // Los movimientos reales que este traslado generó (salida al iniciar,
+  // entrada al recibir) — para poder ligarlos desde el historial.
+  movimiento_salida_id: string | null;
+  movimiento_entrada_id: string | null;
+  created_at: string;
+  updated_at: string;
+  recibido_at: string | null;
+}

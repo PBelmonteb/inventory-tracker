@@ -26,10 +26,14 @@ export function CasoDetalleModal({
   open,
   onClose,
   caso,
+  esGestor,
 }: {
   open: boolean;
   onClose: () => void;
   caso: CasoCompraConRelaciones | null;
+  // Defensa en profundidad: elegirGanadora ya rechaza a un no-gestor del
+  // lado servidor, esto solo evita mostrar un botón que fallaría.
+  esGestor: boolean;
 }) {
   const router = useRouter();
   const [eventos, setEventos] = useState<CasoCompraEvento[]>([]);
@@ -116,7 +120,7 @@ export function CasoDetalleModal({
                   </div>
                   {c.id === solicitud.cotizacion_ganadora_id ? (
                     <Badge tone="ok">Ganadora</Badge>
-                  ) : solicitud.estado === "abierta" && c.estado !== "cancelado" ? (
+                  ) : esGestor && solicitud.estado === "abierta" && c.estado !== "cancelado" ? (
                     <Button
                       type="button"
                       variant="secondary"

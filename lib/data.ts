@@ -3,6 +3,13 @@ import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
 import { calcularStockSugerido, type StockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ, type ResultadoEOQ } from "@/lib/eoq";
+import { clasificarABCXYZ, type ItemClasificado } from "@/lib/clasificacion-abc-xyz";
+import {
+  calcularScorecardProveedores,
+  type CasoRecibidoParaScorecard,
+  type ScorecardProveedor,
+} from "@/lib/scorecard-proveedores";
+import { correrMRP, type BomEdge, type MaterialParaMRP, type RequerimientoMRP } from "@/lib/mrp";
 import { nivelStock } from "@/lib/utils";
 import type {
   Auditoria,
@@ -28,6 +35,7 @@ import type {
   SolicitudCompra,
   SolicitudCompraConRelaciones,
   StockPorUbicacion,
+  Traslado,
   Ubicacion,
 } from "@/lib/types";
 
@@ -124,6 +132,35 @@ export async function getPorLlegar(): Promise<Record<string, number>> {
     if (!c.cantidad_estimada) continue;
     map[c.material_id] = (map[c.material_id] ?? 0) + Number(c.cantidad_estimada);
   }
+  return map;
+}
+
+/* ---------------- Stock en tránsito ---------------- */
+
+export async function getTraslados(): Promise<Traslado[]> {
+  if (DEMO) return store.getTraslados();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("traslados")
+    .select("*")
+    .order("created_at", { ascending: false });
+  return (data as Traslado[]) ?? [];
+}
+
+// Cantidad en tránsito por material (ni en origen ni en destino todavía) —
+// mismo shape que getComprometido/getPorLlegar, para poder sumarla igual
+// de fácil en "Proyectado" (Inventario) y en el MRP.
+export async function getEnTransito(): Promise<Record<string, number>> {
+  if (DEMO) return store.getEnTransitoPorMaterial();
+  const supabase = await createClient();
+  const map: Record<string, number> = {};
+  const { data } = await supabase
+    .from("traslados")
+    .select("material_id, cantidad")
+    .eq("estado", "en_transito")
+    .not("material_id", "is", null);
+  for (const t of (data ?? []) as { material_id: string; cantidad: number }[])
+    map[t.material_id] = (map[t.material_id] ?? 0) + Number(t.cantidad);
   return map;
 }
 
@@ -372,6 +409,257 @@ export async function getEOQ(
   return calcularEOQ({ salidas: salidas ?? [], costoUnitario });
 }
 
+// Ventana de salidas para clasificar TODOS los materiales de una sola vez —
+// mismo default que calcularDemandaDiaria (90 días), acotado aquí para no
+// traer el historial completo de salidas de toda la empresa en una consulta.
+const VENTANA_DIAS_CLASIFICACION = 90;
+
+export interface MaterialParaClasificar {
+  id: string;
+  nombre: string;
+  sku: string | null;
+  costo_unitario: number;
+}
+
+// Data cruda para lib/clasificacion-abc-xyz.ts: materiales activos + sus
+// salidas recientes agrupadas por material_id, en un solo par de consultas
+// (nada de N llamadas por material).
+export async function getDatosClasificacionABCXYZ(): Promise<{
+  materiales: MaterialParaClasificar[];
+  salidasPorMaterial: Record<string, { cantidad: number; created_at: string }[]>;
+}> {
+  const materialesCompletos = await getMateriales();
+  const materiales = materialesCompletos.map((m) => ({
+    id: m.id,
+    nombre: m.nombre,
+    sku: m.sku,
+    costo_unitario: m.costo_unitario,
+  }));
+
+  let salidas: { material_id: string; cantidad: number; created_at: string }[];
+  if (DEMO) {
+    salidas = store.getSalidas();
+  } else {
+    const supabase = await createClient();
+    const desde = new Date(
+      Date.now() - VENTANA_DIAS_CLASIFICACION * 86400000
+    ).toISOString();
+    const { data } = await supabase
+      .from("movimientos")
+      .select("material_id, cantidad, created_at")
+      .eq("tipo", "salida")
+      .gte("created_at", desde);
+    salidas = (data as typeof salidas) ?? [];
+  }
+
+  const salidasPorMaterial: Record<
+    string,
+    { cantidad: number; created_at: string }[]
+  > = {};
+  for (const s of salidas) {
+    (salidasPorMaterial[s.material_id] ??= []).push({
+      cantidad: s.cantidad,
+      created_at: s.created_at,
+    });
+  }
+
+  return { materiales, salidasPorMaterial };
+}
+
+export interface MaterialClasificado extends ItemClasificado {
+  nombre: string;
+  sku: string | null;
+}
+
+// Junta la data cruda (arriba) con el cálculo puro (lib/clasificacion-abc-xyz.ts)
+// y le pega nombre/sku de vuelta — lo único que hace falta para pintar la tabla.
+export async function getClasificacionABCXYZ(): Promise<MaterialClasificado[]> {
+  const { materiales, salidasPorMaterial } = await getDatosClasificacionABCXYZ();
+  const clasificados = clasificarABCXYZ(
+    materiales.map((m) => ({
+      materialId: m.id,
+      costoUnitario: m.costo_unitario,
+      salidas: salidasPorMaterial[m.id] ?? [],
+    }))
+  );
+  const porId = new Map(materiales.map((m) => [m.id, m]));
+  return clasificados.map((c) => ({
+    ...c,
+    nombre: porId.get(c.materialId)?.nombre ?? "—",
+    sku: porId.get(c.materialId)?.sku ?? null,
+  }));
+}
+
+// Tope de compras recibidas consideradas para el scorecard — mismo criterio
+// de "no traer el historial completo desde el origen" que
+// getHistorialPreciosTodos; para el tamaño de empresa que usa esta app, con
+// esto sobra para promediar desempeño de proveedores.
+const LIMITE_RECIBIDOS_SCORECARD = 3000;
+
+export interface ScorecardProveedorConNombre extends ScorecardProveedor {
+  nombre: string;
+  diasEntregaDeclarado: number | null;
+}
+
+// Junta compras YA recibidas + convenios activos (precio/entrega pactados)
+// + el declarado general del proveedor (respaldo si no hay convenio) y le
+// pasa todo resuelto a lib/scorecard-proveedores.ts, que solo agrega — la
+// resolución "convenio gana sobre declarado" vive en un solo lugar (acá).
+export async function getScorecardProveedores(): Promise<ScorecardProveedorConNombre[]> {
+  const [proveedores, convenios] = await Promise.all([getProveedores(), getConvenios()]);
+
+  let recibidos: {
+    proveedor_id: string | null;
+    material_id: string | null;
+    created_at: string;
+    updated_at: string;
+    monto_estimado: number;
+    cantidad_estimada: number | null;
+  }[];
+  if (DEMO) {
+    recibidos = store.getCasosCompra().filter((c) => c.estado === "recibido");
+  } else {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("casos_compra")
+      .select("proveedor_id, material_id, created_at, updated_at, monto_estimado, cantidad_estimada")
+      .eq("estado", "recibido")
+      .order("updated_at", { ascending: false })
+      .limit(LIMITE_RECIBIDOS_SCORECARD);
+    recibidos = data ?? [];
+  }
+
+  const declaradoPorProveedor = new Map(
+    proveedores.map((p) => [p.id, p.dias_entrega_declarado])
+  );
+  const convenioPorProveedorMaterial = new Map(
+    convenios
+      .filter((c) => c.activo)
+      .map((c) => [`${c.proveedor_id}:${c.material_id}`, c])
+  );
+
+  const casosParaScorecard: CasoRecibidoParaScorecard[] = recibidos
+    .filter((c): c is typeof c & { proveedor_id: string } => c.proveedor_id !== null)
+    .map((c) => {
+      const convenio = c.material_id
+        ? convenioPorProveedorMaterial.get(`${c.proveedor_id}:${c.material_id}`)
+        : undefined;
+      return {
+        proveedorId: c.proveedor_id,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+        montoEstimado: c.monto_estimado,
+        cantidadEstimada: c.cantidad_estimada,
+        diasEntregaComprometido:
+          convenio?.dias_entrega_pactado ?? declaradoPorProveedor.get(c.proveedor_id) ?? null,
+        precioPactado: convenio?.precio_pactado ?? null,
+      };
+    });
+
+  const scorePorProveedor = calcularScorecardProveedores(casosParaScorecard);
+
+  return proveedores.map((p) => {
+    const s = scorePorProveedor[p.id];
+    return {
+      proveedorId: p.id,
+      nombre: p.nombre,
+      diasEntregaDeclarado: p.dias_entrega_declarado,
+      numPedidosRecibidos: s?.numPedidosRecibidos ?? 0,
+      valorTotalRecibido: s?.valorTotalRecibido ?? 0,
+      leadTimePromedioDias: s?.leadTimePromedioDias ?? null,
+      cumplimientoEntrega: s?.cumplimientoEntrega ?? null,
+      cumplimientoPrecio: s?.cumplimientoPrecio ?? null,
+      scoreGeneral: s?.scoreGeneral ?? null,
+    };
+  });
+}
+
+export interface FuenteDemandaConNombre {
+  tipo: "venta_directa" | "produccion_derivada";
+  cantidad: number;
+  productoOrigenNombre?: string;
+}
+
+export interface RequerimientoMRPConNombre extends Omit<RequerimientoMRP, "fuentes"> {
+  nombre: string;
+  sku: string | null;
+  unidad: string;
+  fuentes: FuenteDemandaConNombre[];
+}
+
+export interface ResultadoMRPConNombres {
+  requerimientos: RequerimientoMRPConNombre[];
+  materialesConCicloBOM: string[];
+}
+
+// Corrida MRP: junta demanda directa (getComprometido — ventas
+// confirmadas/en producción + salidas pendientes) con el grafo completo de
+// BOM, y la neta contra stock + por llegar en una sola pasada (lib/mrp.ts
+// hace el trabajo real; aquí solo se junta la data cruda, igual que el
+// resto de este archivo).
+export async function getCorridaMRP(): Promise<ResultadoMRPConNombres> {
+  const [materiales, comprometido, porLlegar, enTransito] = await Promise.all([
+    getMateriales(),
+    getComprometido(),
+    getPorLlegar(),
+    getEnTransito(),
+  ]);
+
+  let bomRaw: { producto_id: string; componente_id: string; cantidad_por_unidad: number }[];
+  if (DEMO) {
+    bomRaw = store.getBomItemsTodos();
+  } else {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("bom_items")
+      .select("producto_id, componente_id, cantidad_por_unidad");
+    bomRaw = data ?? [];
+  }
+
+  const materialesParaMRP: MaterialParaMRP[] = materiales.map((m) => ({
+    materialId: m.id,
+    demandaDirecta: comprometido[m.id] ?? 0,
+    stockActual: m.stock_actual,
+    // "Ya está en camino" incluye lo comprado (por llegar de proveedores)
+    // Y lo que ya salió de otra de nuestras ubicaciones pero no ha llegado
+    // a la suya (en tránsito) — ambos son oferta futura real para el MRP.
+    porLlegar: (porLlegar[m.id] ?? 0) + (enTransito[m.id] ?? 0),
+  }));
+  const bom: BomEdge[] = bomRaw.map((b) => ({
+    productoId: b.producto_id,
+    componenteId: b.componente_id,
+    cantidadPorUnidad: b.cantidad_por_unidad,
+  }));
+
+  const resultado = correrMRP(materialesParaMRP, bom);
+  const porId = new Map(materiales.map((m) => [m.id, m]));
+
+  const requerimientos: RequerimientoMRPConNombre[] = resultado.requerimientos
+    .map((r) => {
+      const m = porId.get(r.materialId);
+      return {
+        ...r,
+        nombre: m?.nombre ?? "(material eliminado)",
+        sku: m?.sku ?? null,
+        unidad: m?.unidad ?? "",
+        fuentes: r.fuentes.map((f) => ({
+          tipo: f.tipo,
+          cantidad: f.cantidad,
+          productoOrigenNombre: f.productoOrigenId
+            ? (porId.get(f.productoOrigenId)?.nombre ?? "(material eliminado)")
+            : undefined,
+        })),
+      };
+    })
+    // Solo lo que la corrida realmente tocó: con requerimiento, con
+    // demanda (aunque ya esté cubierta — vale mostrarlo), o con ciclo
+    // detectado. El resto del catálogo no aporta nada a esta vista.
+    .filter((r) => r.requerimientoNeto > 0 || r.demandaBruta > 0 || r.cicloDetectado)
+    .sort((a, b) => b.requerimientoNeto - a.requerimientoNeto);
+
+  return { requerimientos, materialesConCicloBOM: resultado.materialesConCicloBOM };
+}
+
 export async function getAuditoria(limite = 200): Promise<Auditoria[]> {
   if (DEMO) return store.getAuditoria(limite);
   const supabase = await createClient();
@@ -550,6 +838,37 @@ export async function getSolicitudConCasos(
     ...(solicitud as SolicitudCompra),
     casos: (casos as CasoCompraConRelaciones[]) ?? [],
   };
+}
+
+// Todas las solicitudes "abierta" con sus cotizaciones — dos consultas
+// planas (solicitudes + casos hijos vía .in()) en vez de una por
+// solicitud, mismo criterio de "no N+1" que el resto del archivo. Para la
+// bandeja de aprobaciones unificada (/aprobaciones).
+export async function getSolicitudesAbiertas(): Promise<SolicitudCompraConRelaciones[]> {
+  if (DEMO) return store.getSolicitudesAbiertas();
+  const supabase = await createClient();
+  const { data: solicitudes } = await supabase
+    .from("solicitudes_compra")
+    .select("*")
+    .eq("estado", "abierta");
+  if (!solicitudes || solicitudes.length === 0) return [];
+
+  const ids = solicitudes.map((s) => s.id);
+  const { data: casos } = await supabase
+    .from("casos_compra")
+    .select("*, proveedores(id,nombre), materiales(id,nombre,sku,unidad)")
+    .in("solicitud_id", ids);
+
+  const casosPorSolicitud = new Map<string, CasoCompraConRelaciones[]>();
+  for (const c of (casos as CasoCompraConRelaciones[]) ?? []) {
+    if (!c.solicitud_id) continue;
+    (casosPorSolicitud.get(c.solicitud_id) ?? casosPorSolicitud.set(c.solicitud_id, []).get(c.solicitud_id)!).push(c);
+  }
+
+  return (solicitudes as SolicitudCompra[]).map((s) => ({
+    ...s,
+    casos: casosPorSolicitud.get(s.id) ?? [],
+  }));
 }
 
 // Timeline de un caso (components/caso-timeline.tsx).

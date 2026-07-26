@@ -45,6 +45,7 @@ import type {
   StockPorUbicacion,
   TipoEventoCaso,
   TipoMovimiento,
+  Traslado,
   Ubicacion,
 } from "@/lib/types";
 import { makeSeed, PERFIL_DEMO } from "@/lib/mock/seed-data";
@@ -97,6 +98,7 @@ interface DB {
   conteos: Conteo[];
   conteo_items: ConteoItem[];
   configuracion_autorizacion: ConfiguracionAutorizacion;
+  traslados: Traslado[];
 }
 
 const g = globalThis as unknown as { __inventarioDemoDB?: DB };
@@ -224,6 +226,8 @@ if (!g.__inventarioDemoDB) {
     if (c.creado_por_nombre === undefined) c.creado_por_nombre = null;
     if (c.motivo_rechazo === undefined) c.motivo_rechazo = null;
   }
+  // Stock en tránsito (feature posterior).
+  if (!viejo.traslados) viejo.traslados = [];
 }
 const db: DB = g.__inventarioDemoDB;
 
@@ -444,13 +448,14 @@ export const store = {
       });
   },
 
-  getSalidas(): { material_id: string; created_at: string }[] {
+  getSalidas(): { material_id: string; created_at: string; cantidad: number }[] {
     return db.movimientos
       .filter((mv) => mv.tipo === "salida" && mv.material_id !== null)
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
       .map((mv) => ({
         material_id: mv.material_id as string,
         created_at: mv.created_at,
+        cantidad: mv.cantidad,
       }));
   },
 
@@ -662,7 +667,119 @@ export const store = {
     });
   },
 
+  /* ---------------- Stock en tránsito ---------------- */
+  getTraslados(): Traslado[] {
+    return [...db.traslados].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  },
+
+  // Cantidad en tránsito por material (ni en origen ni en destino todavía).
+  getEnTransitoPorMaterial(): Record<string, number> {
+    const map: Record<string, number> = {};
+    for (const t of db.traslados) {
+      if (t.estado !== "en_transito" || !t.material_id) continue;
+      map[t.material_id] = (map[t.material_id] ?? 0) + t.cantidad;
+    }
+    return map;
+  },
+
+  // Registra la salida YA (reusa aplicarMovimiento -> misma validación de
+  // stock por ubicación) y deja un traslado "en_transito" pendiente de
+  // confirmar en destino.
+  iniciarTraslado(
+    datos: { material_id: string; origen_id: string; destino_id: string; cantidad: number; nota?: string | null },
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): Traslado {
+    if (datos.origen_id === datos.destino_id)
+      throw new Error("El origen y destino deben ser distintos");
+    if (!(datos.cantidad > 0)) throw new Error("La cantidad debe ser mayor a cero");
+    const m = db.materiales.find((x) => x.id === datos.material_id);
+    if (!m) throw new Error("Material no encontrado");
+    const origen = db.ubicaciones.find((u) => u.id === datos.origen_id);
+    const destino = db.ubicaciones.find((u) => u.id === datos.destino_id);
+    const codigo = `TRAS-${uid().slice(0, 8)}`;
+
+    const mov = store.aplicarMovimiento(datos.material_id, "salida", datos.cantidad, {
+      nota: datos.nota ?? `Traslado (en tránsito) a ${destino?.nombre ?? "otra ubicación"}`,
+      referencia: codigo,
+      ubicacion_id: datos.origen_id,
+    });
+
+    const now = new Date().toISOString();
+    const traslado: Traslado = {
+      id: uid(),
+      codigo,
+      material_id: m.id,
+      material_nombre: m.nombre,
+      material_sku: m.sku,
+      unidad: m.unidad,
+      cantidad: datos.cantidad,
+      origen_id: datos.origen_id,
+      origen_nombre: origen?.nombre ?? null,
+      destino_id: datos.destino_id,
+      destino_nombre: destino?.nombre ?? null,
+      estado: "en_transito",
+      nota: datos.nota ?? null,
+      creado_por_id: actor.id,
+      creado_por_nombre: actor.nombre,
+      recibido_por_id: null,
+      recibido_por_nombre: null,
+      movimiento_salida_id: mov.id,
+      movimiento_entrada_id: null,
+      created_at: now,
+      updated_at: now,
+      recibido_at: null,
+    };
+    db.traslados.push(traslado);
+    return traslado;
+  },
+
+  recibirTraslado(id: string, actor: UsuarioActor = { id: null, nombre: null }): void {
+    const t = db.traslados.find((x) => x.id === id);
+    if (!t) throw new Error("Traslado no encontrado");
+    if (t.estado !== "en_transito") throw new Error("Este traslado ya no está en tránsito");
+    if (!t.material_id) throw new Error("El material de este traslado ya no existe");
+
+    const mov = store.aplicarMovimiento(t.material_id, "entrada", t.cantidad, {
+      nota: t.nota ?? `Traslado desde ${t.origen_nombre ?? "otra ubicación"}`,
+      referencia: t.codigo,
+      ubicacion_id: t.destino_id,
+    });
+
+    t.estado = "recibido";
+    t.recibido_por_id = actor.id;
+    t.recibido_por_nombre = actor.nombre;
+    t.recibido_at = new Date().toISOString();
+    t.updated_at = t.recibido_at;
+    t.movimiento_entrada_id = mov.id;
+  },
+
+  cancelarTraslado(id: string): void {
+    const t = db.traslados.find((x) => x.id === id);
+    if (!t) throw new Error("Traslado no encontrado");
+    if (t.estado !== "en_transito") throw new Error("Este traslado ya no está en tránsito");
+    if (!t.material_id) throw new Error("El material de este traslado ya no existe");
+
+    store.aplicarMovimiento(t.material_id, "entrada", t.cantidad, {
+      nota: `Traslado cancelado — regresa a ${t.origen_nombre ?? "origen"}`,
+      referencia: t.codigo,
+      ubicacion_id: t.origen_id,
+    });
+
+    t.estado = "cancelado";
+    t.updated_at = new Date().toISOString();
+  },
+
   /* ---------------- BOM / producción ---------------- */
+  // Todas las recetas tal cual (sin resolver nombres) — para MRP, que
+  // necesita el grafo completo producto->componente de una sola vez.
+  getBomItemsTodos(): { producto_id: string; componente_id: string; cantidad_por_unidad: number }[] {
+    return db.bom_items.map((b) => ({
+      producto_id: b.producto_id,
+      componente_id: b.componente_id,
+      cantidad_por_unidad: b.cantidad_por_unidad,
+    }));
+  },
+
   getBom(producto_id: string): BomItemConMaterial[] {
     return db.bom_items
       .filter((b) => b.producto_id === producto_id)
@@ -1702,6 +1819,16 @@ export const store = {
   },
 
   /* ---------------- Solicitudes de compra (comparar proveedores) ---------------- */
+
+  // Todas las solicitudes "abierta" con sus cotizaciones — para la bandeja
+  // de aprobaciones unificada (/aprobaciones), que necesita listarlas todas
+  // de un jalón en vez de una por una.
+  getSolicitudesAbiertas(): SolicitudCompraConRelaciones[] {
+    return db.solicitudes_compra
+      .filter((s) => s.estado === "abierta")
+      .map((s) => store.getSolicitudConCasos(s.id))
+      .filter((s): s is SolicitudCompraConRelaciones => s !== null);
+  },
 
   getSolicitudConCasos(solicitudId: string): SolicitudCompraConRelaciones | null {
     const s = db.solicitudes_compra.find((x) => x.id === solicitudId);
