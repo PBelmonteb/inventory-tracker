@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { DEMO } from "@/lib/config";
+import { getCurrentProfile } from "@/lib/auth";
 import { store } from "@/lib/mock/store";
 import { calcularStockSugerido, type StockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ, type ResultadoEOQ } from "@/lib/eoq";
@@ -38,6 +39,7 @@ import type {
   StockPorUbicacion,
   Traslado,
   Ubicacion,
+  VistaGuardada,
 } from "@/lib/types";
 
 const MATERIAL_SELECT =
@@ -714,6 +716,45 @@ export async function getMovimientosRecientes(
   return (data as MovimientoConRelaciones[]) ?? [];
 }
 
+// Consumo diario (salidas) por material, últimos `dias` días — para las
+// mini-gráficas de la tabla de Inventario ("detectar un patrón raro sin
+// entrar al detalle"). Array de `dias` posiciones, más viejo primero;
+// los materiales sin salidas en el rango simplemente no aparecen como
+// llave (el consumidor trata eso como "sin datos").
+export async function getConsumoDiario(
+  dias = 30
+): Promise<Record<string, number[]>> {
+  if (DEMO) return store.getConsumoDiario(dias);
+
+  const supabase = await createClient();
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const desde = new Date(hoy.getTime() - (dias - 1) * 86400000);
+
+  const { data } = await supabase
+    .from("movimientos")
+    .select("material_id, cantidad, created_at")
+    .eq("tipo", "salida")
+    .gte("created_at", desde.toISOString());
+
+  const map: Record<string, number[]> = {};
+  for (const mv of (data ?? []) as {
+    material_id: string | null;
+    cantidad: number;
+    created_at: string;
+  }[]) {
+    if (!mv.material_id) continue;
+    const fechaMov = new Date(mv.created_at);
+    fechaMov.setHours(0, 0, 0, 0);
+    const diasAtras = Math.round((hoy.getTime() - fechaMov.getTime()) / 86400000);
+    const idx = dias - 1 - diasAtras;
+    if (idx < 0 || idx >= dias) continue;
+    if (!map[mv.material_id]) map[mv.material_id] = new Array(dias).fill(0);
+    map[mv.material_id][idx] += Number(mv.cantidad);
+  }
+  return map;
+}
+
 const LIMITE_BUSQUEDA_MOVIMIENTOS = 150;
 
 export interface FiltrosMovimientos {
@@ -1134,4 +1175,20 @@ export async function getConfiguracionAutorizacion(): Promise<ConfiguracionAutor
       updated_por_nombre: null,
     }
   );
+}
+
+/* ---------------- Vistas/filtros guardados ---------------- */
+
+export async function getVistasGuardadas(pagina: string): Promise<VistaGuardada[]> {
+  const profile = await getCurrentProfile();
+  if (!profile) return [];
+
+  if (DEMO) return store.getVistasGuardadas(profile.id, pagina);
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("vistas_guardadas")
+    .select("*")
+    .eq("pagina", pagina)
+    .order("nombre");
+  return (data as VistaGuardada[]) ?? [];
 }

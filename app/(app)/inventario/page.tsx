@@ -3,6 +3,7 @@ import { getCurrentProfile, esGestor } from "@/lib/auth";
 import {
   getCategorias,
   getComprometido,
+  getConsumoDiario,
   getEnTransito,
   getMateriales,
   getPorLlegar,
@@ -13,17 +14,27 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function InventarioPage() {
-  const [profile, materiales, categorias, ubicaciones, proveedores, comprometido, porLlegar, enTransito] =
-    await Promise.all([
-      getCurrentProfile(),
-      getMateriales(),
-      getCategorias(),
-      getUbicaciones(),
-      getProveedores(),
-      getComprometido(),
-      getPorLlegar(),
-      getEnTransito(),
-    ]);
+  const [
+    profile,
+    materiales,
+    categorias,
+    ubicaciones,
+    proveedores,
+    comprometido,
+    porLlegar,
+    enTransito,
+    consumoDiario,
+  ] = await Promise.all([
+    getCurrentProfile(),
+    getMateriales(),
+    getCategorias(),
+    getUbicaciones(),
+    getProveedores(),
+    getComprometido(),
+    getPorLlegar(),
+    getEnTransito(),
+    getConsumoDiario(30),
+  ]);
 
   return (
     <InventarioView
@@ -34,6 +45,7 @@ export default async function InventarioPage() {
       comprometido={comprometido}
       porLlegar={porLlegar}
       enTransito={enTransito}
+      consumoDiario={consumoDiario}
       esGestor={esGestor(profile)}
     />
   );

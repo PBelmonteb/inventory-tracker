@@ -170,6 +170,39 @@ export async function actualizarPreciosVenta(
   return { ok: true };
 }
 
+export async function actualizarStocksMinimos(
+  updates: { id: string; stock_minimo: number }[]
+): Promise<ActionResult> {
+  if (updates.length === 0) return { ok: false, error: "Nada que guardar" };
+  const invalido = updates.find(
+    (u) => !u.id || !Number.isFinite(u.stock_minimo) || u.stock_minimo < 0
+  );
+  if (invalido)
+    return { ok: false, error: "El stock mínimo no puede ser negativo" };
+
+  if (DEMO) {
+    try {
+      for (const u of updates)
+        store.actualizarMaterial(u.id, { stock_minimo: u.stock_minimo });
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    for (const u of updates) {
+      const { error } = await supabase
+        .from("materiales")
+        .update({ stock_minimo: u.stock_minimo })
+        .eq("id", u.id);
+      if (error) return { ok: false, error: mensajeSupabase(error) };
+    }
+  }
+
+  revalidatePath("/inventario");
+  revalidatePath("/analisis");
+  return { ok: true };
+}
+
 export async function eliminarMaterial(id: string): Promise<ActionResult> {
   if (DEMO) {
     try {

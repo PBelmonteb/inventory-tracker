@@ -5,6 +5,7 @@ import {
   getMateriales,
   getSalidasPendientes,
   getUbicaciones,
+  getVistasGuardadas,
 } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function MovimientosPage({
   const sp = await searchParams;
   const cantidad = sp.cantidad?.trim() ? Number(sp.cantidad) : undefined;
 
-  const [movimientos, materiales, salidasPendientes, ubicaciones, usuariosRes] =
+  const [movimientos, materiales, salidasPendientes, ubicaciones, usuariosRes, vistas] =
     await Promise.all([
       buscarMovimientos({
         q: sp.q,
@@ -38,6 +39,7 @@ export default async function MovimientosPage({
       getSalidasPendientes(),
       getUbicaciones(),
       listarUsuariosParaAsignar(),
+      getVistasGuardadas("movimientos"),
     ]);
 
   const opciones = materiales.map((m) => ({
@@ -60,6 +62,7 @@ export default async function MovimientosPage({
       ubicaciones={ubicaciones}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
       pendientesCount={pendientesCount}
+      vistas={vistas}
     />
   );
 }

@@ -9,6 +9,8 @@ import { DEMO } from "@/lib/config";
 import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { MaterialForm } from "@/components/material-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
+import { Sparkline } from "@/components/sparkline";
+import { actualizarStocksMinimos } from "@/lib/actions/materiales";
 import {
   exportarCSV,
   formatMoney,
@@ -22,7 +24,7 @@ import type {
   Proveedor,
   Ubicacion,
 } from "@/lib/types";
-import { Plus, Search, Pencil, AlertTriangle, Download } from "lucide-react";
+import { Plus, Search, Pencil, AlertTriangle, Download, Save } from "lucide-react";
 
 export function InventarioView({
   materiales,
@@ -32,6 +34,7 @@ export function InventarioView({
   comprometido = {},
   porLlegar = {},
   enTransito = {},
+  consumoDiario = {},
   esGestor,
 }: {
   materiales: MaterialConRelaciones[];
@@ -45,6 +48,9 @@ export function InventarioView({
   // por eso se suma en Proyectado; se muestra aparte solo en /traslados,
   // no aquí, para no saturar más esta tabla ya densa.
   enTransito?: Record<string, number>;
+  // Salidas por día, últimos 30 días, más viejo primero — para el
+  // sparkline de consumo. Materiales sin salidas no traen llave.
+  consumoDiario?: Record<string, number[]>;
   esGestor: boolean;
 }) {
   const router = useRouter();
@@ -59,6 +65,35 @@ export function InventarioView({
   >("nombre");
   const [formOpen, setFormOpen] = useState(false);
   const [editando, setEditando] = useState<MaterialConRelaciones | null>(null);
+
+  // Edición en línea del stock mínimo, directo en la tabla — mismo patrón
+  // de "editar todo, guardar en lote" que Precios (Administración).
+  const [stocksMin, setStocksMin] = useState<Record<string, string>>(() =>
+    Object.fromEntries(materiales.map((m) => [m.id, String(m.stock_minimo)]))
+  );
+  const [guardandoStock, setGuardandoStock] = useState(false);
+  const cambiosStock = materiales.filter(
+    (m) => Number(stocksMin[m.id]) !== m.stock_minimo
+  );
+
+  async function guardarStocksMinimos() {
+    const updates = cambiosStock.map((m) => ({
+      id: m.id,
+      stock_minimo: Number(stocksMin[m.id]) || 0,
+    }));
+    if (updates.some((u) => u.stock_minimo < 0)) {
+      alert("El stock mínimo no puede ser negativo.");
+      return;
+    }
+    setGuardandoStock(true);
+    const res = await actualizarStocksMinimos(updates);
+    setGuardandoStock(false);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    router.refresh();
+  }
 
   useEffect(() => {
     if (DEMO) return;
@@ -240,6 +275,14 @@ export function InventarioView({
             <Download className="h-4 w-4" />
             Excel
           </Button>
+          {esGestor && cambiosStock.length > 0 && (
+            <Button onClick={guardarStocksMinimos} disabled={guardandoStock}>
+              <Save className="h-4 w-4" />
+              {guardandoStock
+                ? "Guardando..."
+                : `Guardar mínimos (${cambiosStock.length})`}
+            </Button>
+          )}
           {esGestor && (
             <Button onClick={abrirNuevo}>
               <Plus className="h-4 w-4" />
@@ -354,6 +397,7 @@ export function InventarioView({
                   </th>
                   <th className="px-4 py-3 text-right font-medium">Mínimo</th>
                   <th className="px-4 py-3 text-right font-medium">Valor</th>
+                  <th className="px-4 py-3 font-medium">Consumo (30d)</th>
                   <th className="px-4 py-3"></th>
                 </tr>
               </thead>
@@ -428,11 +472,46 @@ export function InventarioView({
                       >
                         {formatQty(proy, m.unidad)}
                       </td>
-                      <td className="px-4 py-3 text-right text-faint">
-                        {formatQty(m.stock_minimo, m.unidad)}
+                      <td className="px-4 py-3 text-right">
+                        {esGestor ? (
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={stocksMin[m.id] ?? ""}
+                            onChange={(e) =>
+                              setStocksMin((s) => ({
+                                ...s,
+                                [m.id]: e.target.value,
+                              }))
+                            }
+                            aria-label={`Stock mínimo de ${m.nombre}`}
+                            className="w-20 rounded-lg border border-line bg-surface px-2 py-1 text-right text-sm text-fg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+                          />
+                        ) : (
+                          <span className="text-faint">
+                            {formatQty(m.stock_minimo, m.unidad)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right text-muted">
                         {formatMoney(m.stock_actual * m.costo_unitario)}
+                      </td>
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const serie = consumoDiario[m.id];
+                          const total = serie?.reduce((a, b) => a + b, 0) ?? 0;
+                          return (
+                            <div className="flex items-center gap-2">
+                              <Sparkline data={serie ?? []} />
+                              {total > 0 && (
+                                <span className="text-xs text-faint">
+                                  {formatQty(total, m.unidad)}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {esGestor && (
@@ -494,9 +573,29 @@ export function InventarioView({
                       >
                         {formatQty(m.stock_actual, m.unidad)}
                       </p>
-                      <p className="text-xs text-faint">
-                        mín. {formatQty(m.stock_minimo, m.unidad)}
-                      </p>
+                      {esGestor ? (
+                        <label className="mt-0.5 flex items-center gap-1 text-xs text-faint">
+                          mín.
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={stocksMin[m.id] ?? ""}
+                            onChange={(e) =>
+                              setStocksMin((s) => ({
+                                ...s,
+                                [m.id]: e.target.value,
+                              }))
+                            }
+                            aria-label={`Stock mínimo de ${m.nombre}`}
+                            className="w-16 rounded border border-line bg-surface px-1.5 py-0.5 text-right text-xs text-fg outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+                          />
+                        </label>
+                      ) : (
+                        <p className="text-xs text-faint">
+                          mín. {formatQty(m.stock_minimo, m.unidad)}
+                        </p>
+                      )}
                     </div>
                     {esGestor && (
                       <button

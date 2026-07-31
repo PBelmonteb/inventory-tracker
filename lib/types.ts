@@ -660,3 +660,14 @@ export interface Traslado {
   updated_at: string;
   recibido_at: string | null;
 }
+
+// Vista/filtro guardado ("variant" estilo SAP Fiori): el querystring de
+// filtros de una página, guardado tal cual bajo un nombre, por usuario.
+export interface VistaGuardada {
+  id: string;
+  usuario_id: string;
+  pagina: string;
+  nombre: string;
+  query: string;
+  created_at: string;
+}

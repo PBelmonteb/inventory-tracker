@@ -6,8 +6,9 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { MovimientoForm } from "@/components/movimiento-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
+import { VistasGuardadas } from "@/components/vistas-guardadas";
 import { formatDate, formatQty } from "@/lib/utils";
-import type { MovimientoConRelaciones, Ubicacion } from "@/lib/types";
+import type { MovimientoConRelaciones, Ubicacion, VistaGuardada } from "@/lib/types";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -42,12 +43,14 @@ export function MovimientosView({
   ubicaciones,
   usuarios,
   pendientesCount = 0,
+  vistas,
 }: {
   movimientos: MovimientoConRelaciones[];
   materiales: MaterialOpcion[];
   ubicaciones: Ubicacion[];
   usuarios: UsuarioOpcion[];
   pendientesCount?: number;
+  vistas: VistaGuardada[];
 }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -111,6 +114,7 @@ export function MovimientosView({
           </p>
         </div>
         <div className="flex gap-2">
+          <VistasGuardadas pagina="movimientos" vistas={vistas} />
           <BotonExportarCSV
             filename="movimientos"
             filas={movimientos.map((m) => ({

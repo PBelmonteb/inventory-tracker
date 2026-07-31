@@ -48,6 +48,7 @@ import type {
   TipoMovimiento,
   Traslado,
   Ubicacion,
+  VistaGuardada,
 } from "@/lib/types";
 import { makeSeed, PERFIL_DEMO } from "@/lib/mock/seed-data";
 import { esGestor } from "@/lib/auth";
@@ -102,6 +103,7 @@ interface DB {
   configuracion_autorizacion: ConfiguracionAutorizacion;
   traslados: Traslado[];
   inspecciones_calidad: InspeccionCalidad[];
+  vistas_guardadas: VistaGuardada[];
 }
 
 const g = globalThis as unknown as { __inventarioDemoDB?: DB };
@@ -233,6 +235,8 @@ if (!g.__inventarioDemoDB) {
   if (!viejo.traslados) viejo.traslados = [];
   // Bloqueo de calidad (feature posterior).
   if (!viejo.inspecciones_calidad) viejo.inspecciones_calidad = [];
+  // Vistas/filtros guardados (feature posterior).
+  if (!viejo.vistas_guardadas) viejo.vistas_guardadas = [];
   for (const m of viejo.materiales) {
     if (m.requiere_inspeccion_calidad === undefined) m.requiere_inspeccion_calidad = false;
   }
@@ -420,6 +424,23 @@ export const store = {
     return [...db.auditoria]
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
       .slice(0, limite);
+  },
+
+  getConsumoDiario(dias: number): Record<string, number[]> {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const map: Record<string, number[]> = {};
+    for (const mv of db.movimientos) {
+      if (mv.tipo !== "salida" || !mv.material_id) continue;
+      const fechaMov = new Date(mv.created_at);
+      fechaMov.setHours(0, 0, 0, 0);
+      const diasAtras = Math.round((hoy.getTime() - fechaMov.getTime()) / 86400000);
+      const idx = dias - 1 - diasAtras;
+      if (idx < 0 || idx >= dias) continue;
+      if (!map[mv.material_id]) map[mv.material_id] = new Array(dias).fill(0);
+      map[mv.material_id][idx] += Number(mv.cantidad);
+    }
+    return map;
   },
 
   getMovimientosDeMaterial(materialId: string): MovimientoConRelaciones[] {
@@ -2815,5 +2836,39 @@ export const store = {
       updated_at: new Date().toISOString(),
       updated_por_nombre: actor.nombre,
     };
+  },
+
+  /* ---------------- Vistas/filtros guardados ---------------- */
+
+  getVistasGuardadas(usuarioId: string, pagina: string): VistaGuardada[] {
+    return db.vistas_guardadas
+      .filter((v) => v.usuario_id === usuarioId && v.pagina === pagina)
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+  },
+
+  crearVistaGuardada(usuarioId: string, pagina: string, nombre: string, query: string): VistaGuardada {
+    if (
+      db.vistas_guardadas.some(
+        (v) => v.usuario_id === usuarioId && v.pagina === pagina && v.nombre === nombre
+      )
+    ) {
+      throw new Error("Ya tienes una vista guardada con ese nombre");
+    }
+    const v: VistaGuardada = {
+      id: uid(),
+      usuario_id: usuarioId,
+      pagina,
+      nombre,
+      query,
+      created_at: new Date().toISOString(),
+    };
+    db.vistas_guardadas.push(v);
+    return v;
+  },
+
+  eliminarVistaGuardada(usuarioId: string, id: string): void {
+    db.vistas_guardadas = db.vistas_guardadas.filter(
+      (v) => !(v.id === id && v.usuario_id === usuarioId)
+    );
   },
 };

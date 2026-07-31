@@ -23,6 +23,7 @@ import type {
   SolicitudCompra,
   Traslado,
   Ubicacion,
+  VistaGuardada,
 } from "@/lib/types";
 
 // Datos de ejemplo para el modo demo (sin Supabase).
@@ -81,6 +82,7 @@ export function makeSeed(): {
   configuracion_autorizacion: ConfiguracionAutorizacion;
   traslados: Traslado[];
   inspecciones_calidad: InspeccionCalidad[];
+  vistas_guardadas: VistaGuardada[];
 } {
   const categorias: Categoria[] = [
     { id: "cat-perfiles", nombre: "Perfiles de aluminio", created_at: diasAtras(60) },
@@ -643,5 +645,6 @@ export function makeSeed(): {
     },
     traslados: [],
     inspecciones_calidad: [],
+    vistas_guardadas: [],
   };
 }
