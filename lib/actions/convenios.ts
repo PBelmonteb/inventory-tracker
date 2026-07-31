@@ -108,7 +108,7 @@ export async function crearConvenio(formData: FormData): Promise<ActionResult> {
     });
   }
 
-  revalidatePath("/convenios");
+  revalidatePath("/proveedores");
   revalidatePath(`/materiales/${datos.material_id}`);
   return { ok: true };
 }
@@ -169,7 +169,7 @@ export async function actualizarConvenio(
     }
   }
 
-  revalidatePath("/convenios");
+  revalidatePath("/proveedores");
   revalidatePath(`/materiales/${datos.material_id}`);
   return { ok: true };
 }
@@ -199,7 +199,7 @@ export async function desactivarConvenio(id: string): Promise<ActionResult> {
     if (error) return { ok: false, error: mensajeSupabase(error) };
   }
 
-  revalidatePath("/convenios");
+  revalidatePath("/proveedores");
   return { ok: true };
 }
 

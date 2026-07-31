@@ -54,6 +54,10 @@ export interface Material {
   // precio_venta = precio de venta actual (para margen).
   precio_venta: number;
   activo: boolean;
+  // Si es true, recibir una compra de este material NO suma stock al
+  // instante — queda como InspeccionCalidad pendiente hasta que un gestor
+  // libere (todo o en parte) o rechace. Ver lib/inspeccion-calidad.ts.
+  requiere_inspeccion_calidad: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -305,8 +309,12 @@ export interface CasoCompra {
   referencia: string | null; // OC-xxxx
   estado: EstadoCasoCompra;
   origen: OrigenCasoCompra;
-  // Al marcar "recibido" se crea la entrada de stock y se enlaza aquí.
+  // Al marcar "recibido" se crea la entrada de stock y se enlaza aquí —
+  // salvo que el material requiera inspección de calidad, en cuyo caso
+  // este queda null y se enlaza inspeccion_calidad_id en su lugar (el
+  // stock sube después, si se libera).
   movimiento_id: string | null;
+  inspeccion_calidad_id: string | null;
   // Persona encargada de darle seguimiento (null = sin asignar).
   responsable_id: string | null;
   responsable_nombre: string | null;
@@ -337,6 +345,38 @@ export interface CasoCompraConRelaciones extends CasoCompra {
   // Solo si solicitud_id no es null — el código para mostrar junto al de
   // este caso y agrupar visualmente las cotizaciones hermanas en la lista.
   solicitudes_compra: { codigo: string } | null;
+}
+
+/* ---------------- Bloqueo de calidad ---------------- */
+
+// Material recibido de un material "requiere_inspeccion_calidad" — no
+// suma stock hasta que un gestor lo resuelve (lib/inspeccion-calidad.ts
+// valida las cantidades; la RPC resolver_inspeccion_calidad aplica).
+export type EstadoInspeccionCalidad = "pendiente" | "resuelta";
+
+export interface InspeccionCalidad {
+  id: string;
+  caso_compra_id: string | null;
+  material_id: string | null;
+  material_nombre: string;
+  material_sku: string | null;
+  proveedor_nombre: string | null;
+  ubicacion_id: string | null;
+  ubicacion_nombre: string | null;
+  referencia: string | null;
+  cantidad_recibida: number;
+  costo_unitario: number;
+  estado: EstadoInspeccionCalidad;
+  cantidad_liberada: number | null;
+  cantidad_rechazada: number | null;
+  motivo_rechazo: string | null;
+  movimiento_id: string | null;
+  creado_por_id: string | null;
+  creado_por_nombre: string | null;
+  resuelto_por_id: string | null;
+  resuelto_por_nombre: string | null;
+  resuelto_at: string | null;
+  created_at: string;
 }
 
 /* ---------------- Solicitudes de compra (comparar proveedores) ---------------- */

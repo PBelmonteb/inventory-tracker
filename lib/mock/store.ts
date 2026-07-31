@@ -25,6 +25,7 @@ import type {
   EstadoCasoCompra,
   EstadoCasoVenta,
   HistorialPrecio,
+  InspeccionCalidad,
   Material,
   MaterialConRelaciones,
   Movimiento,
@@ -50,11 +51,12 @@ import type {
 } from "@/lib/types";
 import { makeSeed, PERFIL_DEMO } from "@/lib/mock/seed-data";
 import { esGestor } from "@/lib/auth";
-import { nivelStock, puntoAviso } from "@/lib/utils";
+import { nivelStock, normalizarTexto, puntoAviso } from "@/lib/utils";
 import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
 import { evaluarRiesgoStock, type RiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
+import { validarResolucionInspeccion } from "@/lib/inspeccion-calidad";
 import {
   construirCorreoOrdenConvenio,
   construirCorreoOrdenAutorizada,
@@ -99,6 +101,7 @@ interface DB {
   conteo_items: ConteoItem[];
   configuracion_autorizacion: ConfiguracionAutorizacion;
   traslados: Traslado[];
+  inspecciones_calidad: InspeccionCalidad[];
 }
 
 const g = globalThis as unknown as { __inventarioDemoDB?: DB };
@@ -228,6 +231,14 @@ if (!g.__inventarioDemoDB) {
   }
   // Stock en tránsito (feature posterior).
   if (!viejo.traslados) viejo.traslados = [];
+  // Bloqueo de calidad (feature posterior).
+  if (!viejo.inspecciones_calidad) viejo.inspecciones_calidad = [];
+  for (const m of viejo.materiales) {
+    if (m.requiere_inspeccion_calidad === undefined) m.requiere_inspeccion_calidad = false;
+  }
+  for (const c of viejo.casos_compra) {
+    if (c.inspeccion_calidad_id === undefined) c.inspeccion_calidad_id = null;
+  }
 }
 const db: DB = g.__inventarioDemoDB;
 
@@ -443,6 +454,64 @@ export const store = {
             ? { id: m.id, nombre: m.nombre, sku: m.sku, unidad: m.unidad }
             : null,
           profiles: { id: PERFIL_DEMO.id, nombre: PERFIL_DEMO.nombre },
+          ubicaciones: u ? { id: u.id, nombre: u.nombre } : null,
+        };
+      });
+  },
+
+  // Espejo de lib/data.ts buscarMovimientos — mismos filtros, sobre
+  // TODO el historial en memoria (no solo los últimos N).
+  buscarMovimientos(filtros: {
+    q?: string;
+    referencia?: string;
+    cantidad?: number;
+    usuarioId?: string;
+    ubicacionId?: string;
+    fecha?: string;
+  }): MovimientoConRelaciones[] {
+    const q = filtros.q?.trim() ? normalizarTexto(filtros.q) : undefined;
+    const referencia = filtros.referencia?.trim().toLowerCase();
+    let inicio: number | null = null;
+    let fin: number | null = null;
+    if (filtros.fecha) {
+      inicio = new Date(`${filtros.fecha}T00:00:00`).getTime();
+      fin = new Date(`${filtros.fecha}T23:59:59.999`).getTime();
+    }
+
+    return [...db.movimientos]
+      .filter((mv) => {
+        if (q) {
+          const nombre = normalizarTexto(mv.material_nombre);
+          const sku = normalizarTexto(mv.material_sku);
+          if (!nombre.includes(q) && !sku.includes(q)) return false;
+        }
+        if (referencia && !(mv.referencia ?? "").toLowerCase().includes(referencia))
+          return false;
+        if (filtros.cantidad != null && mv.cantidad !== filtros.cantidad) return false;
+        if (filtros.usuarioId && mv.usuario_id !== filtros.usuarioId) return false;
+        if (filtros.ubicacionId && mv.ubicacion_id !== filtros.ubicacionId) return false;
+        if (inicio != null && fin != null) {
+          const t = new Date(mv.created_at).getTime();
+          if (t < inicio || t > fin) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .slice(0, 150)
+      .map((mv) => {
+        const m = db.materiales.find((x) => x.id === mv.material_id);
+        const u = mv.ubicacion_id
+          ? db.ubicaciones.find((x) => x.id === mv.ubicacion_id)
+          : undefined;
+        const perfil = db.profiles.find((x) => x.id === mv.usuario_id);
+        return {
+          ...mv,
+          materiales: m
+            ? { id: m.id, nombre: m.nombre, sku: m.sku, unidad: m.unidad }
+            : null,
+          profiles: perfil
+            ? { id: perfil.id, nombre: perfil.nombre }
+            : { id: PERFIL_DEMO.id, nombre: PERFIL_DEMO.nombre },
           ubicaciones: u ? { id: u.id, nombre: u.nombre } : null,
         };
       });
@@ -1264,6 +1333,7 @@ export const store = {
       id: uid(),
       estado: data.estado ?? "pendiente",
       movimiento_id: null,
+      inspeccion_calidad_id: null,
       proveedor_nombre: prov.nombre,
       responsable_id: null,
       responsable_nombre: null,
@@ -1343,10 +1413,47 @@ export const store = {
   ): void {
     const c = db.casos_compra.find((x) => x.id === id);
     if (!c) throw new Error("Caso de compra no encontrado");
-    if (c.movimiento_id) throw new Error("Este caso ya fue recibido");
+    if (c.movimiento_id || c.inspeccion_calidad_id)
+      throw new Error("Este caso ya fue recibido");
     if (!c.material_id)
       throw new Error("El caso no tiene un material asignado");
     if (!(cantidad > 0)) throw new Error("La cantidad debe ser mayor a cero");
+
+    const m = db.materiales.find((x) => x.id === c.material_id);
+    if (m?.requiere_inspeccion_calidad) {
+      const ubicacion = db.ubicaciones.find((u) => u.id === ubicacion_id);
+      const insp: InspeccionCalidad = {
+        id: uid(),
+        caso_compra_id: c.id,
+        material_id: c.material_id,
+        material_nombre: m.nombre,
+        material_sku: m.sku,
+        proveedor_nombre: c.proveedor_nombre,
+        ubicacion_id: ubicacion_id ?? null,
+        ubicacion_nombre: ubicacion?.nombre ?? null,
+        referencia: c.referencia,
+        cantidad_recibida: cantidad,
+        costo_unitario: costo > 0 ? costo : 0,
+        estado: "pendiente",
+        cantidad_liberada: null,
+        cantidad_rechazada: null,
+        motivo_rechazo: null,
+        movimiento_id: null,
+        creado_por_id: actor.id,
+        creado_por_nombre: actor.nombre,
+        resuelto_por_id: null,
+        resuelto_por_nombre: null,
+        resuelto_at: null,
+        created_at: new Date().toISOString(),
+      };
+      db.inspecciones_calidad.push(insp);
+      c.estado = "recibido";
+      c.inspeccion_calidad_id = insp.id;
+      c.updated_at = new Date().toISOString();
+      store.registrarEventoCaso(c.id, "estado_cambiado", "recibido", actor);
+      if (c.solicitud_id) store.resolverSolicitud(c.solicitud_id, c.id);
+      return;
+    }
 
     const mov = store.aplicarMovimiento(c.material_id, "entrada", cantidad, {
       nota: `Recepción: ${c.titulo}`,
@@ -1359,6 +1466,53 @@ export const store = {
     c.updated_at = new Date().toISOString();
     store.registrarEventoCaso(c.id, "estado_cambiado", "recibido", actor);
     if (c.solicitud_id) store.resolverSolicitud(c.solicitud_id, c.id);
+  },
+
+  getInspeccionesCalidad(): InspeccionCalidad[] {
+    return [...db.inspecciones_calidad].sort((a, b) =>
+      a.created_at < b.created_at ? 1 : -1
+    );
+  },
+
+  resolverInspeccionCalidad(
+    id: string,
+    cantidadLiberada: number,
+    cantidadRechazada: number,
+    motivoRechazo: string | null,
+    actor: { id: string | null; nombre: string | null } = { id: null, nombre: null }
+  ): void {
+    const insp = db.inspecciones_calidad.find((x) => x.id === id);
+    if (!insp) throw new Error("Inspección no encontrada");
+    if (insp.estado !== "pendiente")
+      throw new Error("Esta inspección ya fue resuelta");
+
+    const v = validarResolucionInspeccion({
+      cantidadRecibida: insp.cantidad_recibida,
+      cantidadLiberada,
+      cantidadRechazada,
+      motivoRechazo,
+    });
+    if (!v.ok) throw new Error(v.error);
+
+    let movId: string | null = null;
+    if (cantidadLiberada > 0 && insp.material_id) {
+      const mov = store.aplicarMovimiento(insp.material_id, "entrada", cantidadLiberada, {
+        nota: `Liberación de calidad${insp.referencia ? ` — ${insp.referencia}` : ""}`,
+        referencia: insp.referencia,
+        costo: insp.costo_unitario > 0 ? insp.costo_unitario : null,
+        ubicacion_id: insp.ubicacion_id,
+      });
+      movId = mov.id;
+    }
+
+    insp.estado = "resuelta";
+    insp.cantidad_liberada = cantidadLiberada;
+    insp.cantidad_rechazada = cantidadRechazada;
+    insp.motivo_rechazo = cantidadRechazada > 0 ? motivoRechazo?.trim() || null : null;
+    insp.movimiento_id = movId;
+    insp.resuelto_por_id = actor.id;
+    insp.resuelto_por_nombre = actor.nombre;
+    insp.resuelto_at = new Date().toISOString();
   },
 
   // Envía cotización para un caso YA EXISTENTE (link del título en
@@ -2110,7 +2264,9 @@ export const store = {
       titulo: string;
       descripcion: string | null;
       cantidad_estimada: number;
-      monto_estimado: number;
+      // Sin valor cuando quien edita es operario — el monto existente se
+      // queda igual hasta que un gestor lo revise.
+      monto_estimado?: number;
     },
     actor: UsuarioActor = { id: null, nombre: null }
   ): void {
@@ -2126,7 +2282,7 @@ export const store = {
     c.titulo = datos.titulo;
     c.descripcion = datos.descripcion;
     c.cantidad_estimada = datos.cantidad_estimada;
-    c.monto_estimado = datos.monto_estimado;
+    if (datos.monto_estimado !== undefined) c.monto_estimado = datos.monto_estimado;
     c.estado = "por_autorizar";
     c.motivo_rechazo = null;
     c.updated_at = new Date().toISOString();

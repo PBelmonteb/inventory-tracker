@@ -14,7 +14,7 @@ import {
 import { guardarUmbralAutorizacion } from "@/lib/actions/autorizacion";
 import { formatDate, formatMoney } from "@/lib/utils";
 import type { Rol } from "@/lib/types";
-import { Eye, EyeOff, Plus, Save, ShieldCheck, UserCog, Wand2 } from "lucide-react";
+import { Eye, EyeOff, Plus, Save, ShieldCheck, Wand2 } from "lucide-react";
 
 const ROL_LABEL: Record<Rol, string> = {
   admin: "Admin",
@@ -88,19 +88,9 @@ export function UsuariosView({
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-4 md:p-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <UserCog className="h-6 w-6 text-accent" />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-              Usuarios
-            </h1>
-            <p className="mt-1 text-sm text-muted">
-              Da de alta empleados y administra sus roles.
-            </p>
-          </div>
-        </div>
+    <div className="mx-auto max-w-4xl">
+      {/* Sin h1 propio: vive como tab dentro de Administración. */}
+      <div className="mb-6 flex justify-end">
         <div className="flex gap-2">
           <BotonExportarCSV
             filename="usuarios"

@@ -91,17 +91,9 @@ export function EtiquetasView({
   const total = sel.size;
 
   return (
-    <div className="mx-auto max-w-5xl p-4 md:p-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-            Etiquetas QR
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Imprime y pega una etiqueta por material en su rack. Cada QR contiene
-            el SKU para escanear y registrar movimientos.
-          </p>
-        </div>
+    <div className="mx-auto max-w-5xl">
+      {/* Sin h1 propio: vive como tab dentro de Administración. */}
+      <div className="mb-6 flex justify-end">
         <Button onClick={imprimir} disabled={total === 0}>
           <Printer className="h-4 w-4" /> Imprimir {total > 0 ? `(${total})` : ""}
         </Button>

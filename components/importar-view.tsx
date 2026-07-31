@@ -271,17 +271,9 @@ export function ImportarView() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-4 md:p-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-            Importar inventario
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Carga el Excel del cliente como está — la app detecta hoja,
-            encabezados y columnas.
-          </p>
-        </div>
+    <div className="mx-auto max-w-5xl">
+      {/* Sin h1 propio: vive como tab dentro de Administración. */}
+      <div className="mb-6 flex justify-end">
         <Button variant="secondary" onClick={descargarPlantilla}>
           <Download className="h-4 w-4" /> Descargar plantilla
         </Button>

@@ -65,18 +65,8 @@ export function ClasificacionView({ items }: { items: MaterialClasificado[] }) {
   const clasesXYZ: (ClaseXYZ | "sin datos")[] = ["X", "Y", "Z", "sin datos"];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-          Clasificación ABC/XYZ
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Qué materiales valen conteo cíclico frecuente y punto de reorden fino
-          — por valor de consumo (ABC) y por qué tan predecible es su demanda
-          (XYZ).
-        </p>
-      </div>
-
+    <div className="mx-auto max-w-7xl space-y-5">
+      {/* Sin h1 propio: vive como tab dentro de Análisis. */}
       {/* Matriz resumen */}
       <Card className="overflow-x-auto p-5">
         <h2 className="mb-3 font-semibold text-fg">Matriz ABC × XYZ</h2>

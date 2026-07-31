@@ -17,12 +17,14 @@
 import {
   getCasosCompra,
   getConteos,
+  getInspeccionesCalidad,
   getSolicitudesAbiertas,
   getConfiguracionAutorizacion,
 } from "@/lib/data";
 import type {
   CasoCompraConRelaciones,
   Conteo,
+  InspeccionCalidad,
   SolicitudCompraConRelaciones,
 } from "@/lib/types";
 
@@ -34,14 +36,16 @@ export interface BandejaAprobaciones {
   porAutorizar: CasoPorAutorizar[];
   conteosPorRevisar: Conteo[];
   solicitudesPorResolver: SolicitudCompraConRelaciones[];
+  inspeccionesPendientes: InspeccionCalidad[];
 }
 
 export async function getBandejaAprobaciones(): Promise<BandejaAprobaciones> {
-  const [casosCompra, conteos, solicitudes, config] = await Promise.all([
+  const [casosCompra, conteos, solicitudes, config, inspecciones] = await Promise.all([
     getCasosCompra(),
     getConteos(),
     getSolicitudesAbiertas(),
     getConfiguracionAutorizacion(),
+    getInspeccionesCalidad(),
   ]);
 
   const porAutorizar: CasoPorAutorizar[] = casosCompra
@@ -58,5 +62,7 @@ export async function getBandejaAprobaciones(): Promise<BandejaAprobaciones> {
     (s) => s.casos.filter((c) => c.estado !== "cancelado").length > 1
   );
 
-  return { porAutorizar, conteosPorRevisar, solicitudesPorResolver };
+  const inspeccionesPendientes = inspecciones.filter((i) => i.estado === "pendiente");
+
+  return { porAutorizar, conteosPorRevisar, solicitudesPorResolver, inspeccionesPendientes };
 }

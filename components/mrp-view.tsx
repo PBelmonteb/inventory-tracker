@@ -55,18 +55,8 @@ export function MRPView({
   const totalComprar = requerimientos.filter((r) => r.accion === "comprar").length;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-          MRP — planeación de requerimientos
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Toda la demanda (ventas directas + producción vía receta) neteada
-          contra stock y lo que ya está en camino, en una sola corrida — para
-          que un producto compuesto no se coma el insumo de otro sin que
-          nadie se entere a tiempo.
-        </p>
-      </div>
+    <div className="mx-auto max-w-7xl space-y-5">
+      {/* Sin h1 propio: vive como tab dentro de Análisis. */}
 
       {materialesConCicloBOM.length > 0 && (
         <Card className="border-amber-500/30 bg-amber-500/5 p-4">

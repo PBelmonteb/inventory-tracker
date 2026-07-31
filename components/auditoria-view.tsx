@@ -61,19 +61,9 @@ export function AuditoriaView({ registros }: { registros: Auditoria[] }) {
   }, [registros, busqueda, fAccion, fEntidad]);
 
   return (
-    <div className="mx-auto max-w-4xl p-4 md:p-8">
-      <div className="mb-6 flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-6 w-6 text-accent" />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-              Bitácora de auditoría
-            </h1>
-            <p className="mt-1 text-sm text-muted">
-              Quién creó, editó o dio de baja materiales y catálogos.
-            </p>
-          </div>
-        </div>
+    <div className="mx-auto max-w-4xl">
+      {/* Sin h1 propio: vive como tab dentro de Administración. */}
+      <div className="mb-6 flex justify-end">
         <BotonExportarCSV
           filename="auditoria"
           filas={filtrados.map((r) => ({

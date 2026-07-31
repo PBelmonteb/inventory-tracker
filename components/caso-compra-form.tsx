@@ -196,13 +196,20 @@ export function CasoCompraForm({
             Se usa para calcular el stock "por llegar" en Inventario mientras
             el caso siga en curso.
           </p>
+          {requiereAutorizacion && (
+            <p className="mt-1.5 text-xs text-muted">
+              Este caso se manda directo a autorización de un gestor — revisa
+              que material y cantidad estén completos. El monto lo captura el
+              gestor al autorizar.
+            </p>
+          )}
         </div>
 
-        {unProveedorId && (
+        {/* El monto es decisión del gestor — el operario nunca lo ve ni lo
+            captura, ni siquiera cuando el caso va a autorización. */}
+        {esGestor && unProveedorId && (
           <div>
-            <Label htmlFor="cc-monto">
-              Monto estimado (MXN){requiereAutorizacion ? "" : " (opcional)"}
-            </Label>
+            <Label htmlFor="cc-monto">Monto estimado (MXN) (opcional)</Label>
             <Input
               ref={montoRef}
               id="cc-monto"
@@ -210,15 +217,8 @@ export function CasoCompraForm({
               type="number"
               step="any"
               min="0"
-              required={requiereAutorizacion}
               placeholder="0.00"
             />
-            {requiereAutorizacion && (
-              <p className="mt-1.5 text-xs text-muted">
-                Este caso se manda directo a autorización de un gestor —
-                revisa que material, cantidad y monto estén completos.
-              </p>
-            )}
             {convenio && (
               <div className="mt-1.5 flex items-center justify-between gap-2 rounded-lg border border-line bg-surface-2/40 px-2.5 py-2 text-xs">
                 <span className="text-muted">

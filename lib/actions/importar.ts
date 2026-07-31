@@ -164,6 +164,9 @@ function importarDemo(filas: FilaImport[]): ImportResult {
           aviso_valor: 20,
           aviso_modo: "porcentaje",
           costo_unitario: Number(fila.costo_unitario) || 0,
+          // El Excel importado no trae esta bandera — se activa después,
+          // a mano, desde el material si aplica.
+          requiere_inspeccion_calidad: false,
         },
         Number(fila.stock_inicial) || 0
       );

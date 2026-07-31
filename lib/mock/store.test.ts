@@ -19,6 +19,7 @@ function crearMaterialPrueba(overrides: Partial<Material> = {}): Material {
     aviso_valor: 20,
     aviso_modo: "porcentaje",
     costo_unitario: 0,
+    requiere_inspeccion_calidad: false,
     ...overrides,
   });
 }
@@ -130,6 +131,7 @@ describe("crearMaterial", () => {
         aviso_valor: 20,
         aviso_modo: "porcentaje",
         costo_unitario: 8,
+        requiere_inspeccion_calidad: false,
       },
       40
     );

@@ -5,10 +5,16 @@ import { Badge, Card } from "@/components/ui";
 import { AutorizarCasoForm } from "@/components/autorizar-caso-form";
 import { ConteoDetalleModal } from "@/components/conteo-detalle-modal";
 import { CasoDetalleModal } from "@/components/caso-detalle-modal";
+import { ResolverInspeccionForm } from "@/components/resolver-inspeccion-form";
 import { formatDate, formatMoney } from "@/lib/utils";
 import type { BandejaAprobaciones, CasoPorAutorizar } from "@/lib/aprobaciones";
-import type { CasoCompraConRelaciones, Conteo, SolicitudCompraConRelaciones } from "@/lib/types";
-import { AlertTriangle, ClipboardCheck, Scale, CheckCircle2 } from "lucide-react";
+import type {
+  CasoCompraConRelaciones,
+  Conteo,
+  InspeccionCalidad,
+  SolicitudCompraConRelaciones,
+} from "@/lib/types";
+import { AlertTriangle, ClipboardCheck, Scale, ShieldQuestion, CheckCircle2 } from "lucide-react";
 
 function Seccion({
   titulo,
@@ -54,6 +60,7 @@ export function AprobacionesView({
   const [autorizando, setAutorizando] = useState<CasoPorAutorizar | null>(null);
   const [conteoAbierto, setConteoAbierto] = useState<Conteo | null>(null);
   const [detalleCaso, setDetalleCaso] = useState<CasoCompraConRelaciones | null>(null);
+  const [inspeccionAbierta, setInspeccionAbierta] = useState<InspeccionCalidad | null>(null);
 
   function abrirSolicitud(s: SolicitudCompraConRelaciones) {
     const repr = s.casos.find((c) => c.estado !== "cancelado") ?? s.casos[0] ?? null;
@@ -158,6 +165,32 @@ export function AprobacionesView({
         })}
       </Seccion>
 
+      <Seccion
+        titulo="Inspecciones de calidad pendientes"
+        icon={<ShieldQuestion className="h-4 w-4 text-amber-500" />}
+        count={bandeja.inspeccionesPendientes.length}
+        vacio="No hay entregas esperando inspección de calidad."
+      >
+        {bandeja.inspeccionesPendientes.map((i) => (
+          <li key={i.id}>
+            <button
+              type="button"
+              onClick={() => setInspeccionAbierta(i)}
+              className="flex w-full cursor-pointer items-center justify-between gap-2 py-2.5 text-left text-sm transition-colors hover:text-accent"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-fg">{i.material_nombre}</p>
+                <p className="truncate text-xs text-faint">
+                  {i.proveedor_nombre ?? "Sin proveedor"}
+                  {i.referencia ? ` · ${i.referencia}` : ""}
+                </p>
+              </div>
+              <span className="shrink-0 text-xs text-faint">Recibido {formatDate(i.created_at)}</span>
+            </button>
+          </li>
+        ))}
+      </Seccion>
+
       <AutorizarCasoForm
         caso={autorizando}
         esAdmin={esAdmin}
@@ -165,6 +198,7 @@ export function AprobacionesView({
         onClose={() => setAutorizando(null)}
       />
       <ConteoDetalleModal conteo={conteoAbierto} esGestor onClose={() => setConteoAbierto(null)} />
+      <ResolverInspeccionForm inspeccion={inspeccionAbierta} onClose={() => setInspeccionAbierta(null)} />
       <CasoDetalleModal
         open={Boolean(detalleCaso)}
         onClose={() => setDetalleCaso(null)}

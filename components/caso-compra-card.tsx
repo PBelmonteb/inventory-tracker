@@ -51,12 +51,16 @@ export function CasoCompraCard({
   onAsignarResponsable,
   onVerDetalle,
   actions,
+  esGestor,
 }: {
   caso: CasoCompraConRelaciones;
   usuarios: UsuarioAsignable[];
   onAsignarResponsable?: (casoId: string, usuarioId: string) => void;
   onVerDetalle: (caso: CasoCompraConRelaciones) => void;
   actions?: React.ReactNode;
+  // El operario solo maneja material — el dinero (monto del pedido) es
+  // decisión del gestor, no se le muestra en ningún lado.
+  esGestor: boolean;
 }) {
   const origenMeta = ORIGEN_META[caso.origen];
   const OrigenIcon = origenMeta.Icon;
@@ -97,7 +101,8 @@ export function CasoCompraCard({
           {caso.cantidad_estimada != null && (
             <>Cantidad: {formatQty(caso.cantidad_estimada, caso.materiales?.unidad)} · </>
           )}
-          Monto: {formatMoney(caso.monto_estimado)} · {formatDate(caso.created_at)}
+          {esGestor && <>Monto: {formatMoney(caso.monto_estimado)} · </>}
+          {formatDate(caso.created_at)}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           {bulletOrigen && (

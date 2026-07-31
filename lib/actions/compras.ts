@@ -205,7 +205,7 @@ export async function recibirCasoCompra(
   revalidatePath("/proveedores");
   revalidatePath("/inventario");
   revalidatePath("/movimientos");
-  revalidatePath("/reportes");
+  revalidatePath("/analisis");
   return { ok: true };
 }
 

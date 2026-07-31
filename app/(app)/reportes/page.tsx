@@ -1,21 +1,7 @@
-import { ReportesView } from "@/components/reportes-view";
-import { getReportes, DIAS_PARADO } from "@/lib/reportes";
-import { getMateriales, getHistorialPreciosTodos } from "@/lib/data";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function ReportesPage() {
-  const [reportes, materiales, historial] = await Promise.all([
-    getReportes(),
-    getMateriales(),
-    getHistorialPreciosTodos(),
-  ]);
-  return (
-    <ReportesView
-      reportes={reportes}
-      diasParado={DIAS_PARADO}
-      materiales={materiales}
-      historial={historial}
-    />
-  );
+// Reportes se fusionó dentro de Análisis (ver components/analisis-view.tsx)
+// — esta ruta solo redirige para no romper enlaces/favoritos viejos.
+export default function ReportesPage() {
+  redirect("/analisis?tab=reportes");
 }

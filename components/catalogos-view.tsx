@@ -23,14 +23,8 @@ export function CatalogosView({
   proveedores: Proveedor[];
 }) {
   return (
-    <div className="mx-auto max-w-7xl p-4 md:p-8">
-      <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-        Catálogos
-      </h1>
-      <p className="mb-6 mt-1 text-sm text-muted">
-        Categorías, ubicaciones y proveedores.
-      </p>
-
+    <div className="mx-auto max-w-7xl">
+      {/* Sin h1 propio: vive como tab dentro de Administración. */}
       <div className="grid gap-4 md:grid-cols-3">
         <CatalogoCard
           titulo="Categorías"

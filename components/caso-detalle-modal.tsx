@@ -94,8 +94,7 @@ export function CasoDetalleModal({
           <p className="text-muted">
             {caso.proveedores?.nombre ?? caso.proveedor_nombre ?? "Proveedor eliminado"}
             {caso.materiales && <> · {caso.materiales.nombre}</>}
-            {" · "}
-            {formatMoney(caso.monto_estimado)}
+            {esGestor && <> · {formatMoney(caso.monto_estimado)}</>}
           </p>
         </div>
 
@@ -115,7 +114,8 @@ export function CasoDetalleModal({
                       {c.proveedores?.nombre ?? "Proveedor eliminado"}
                     </p>
                     <p className="text-xs text-muted">
-                      {formatMoney(c.monto_estimado)} · {c.estado}
+                      {esGestor && <>{formatMoney(c.monto_estimado)} · </>}
+                      {c.estado}
                     </p>
                   </div>
                   {c.id === solicitud.cotizacion_ganadora_id ? (

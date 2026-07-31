@@ -50,6 +50,7 @@ function material(overrides: Partial<MaterialConRelaciones> = {}): MaterialConRe
     costo_unitario: 10,
     precio_venta: 15,
     activo: true,
+    requiere_inspeccion_calidad: false,
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
     categorias: null,

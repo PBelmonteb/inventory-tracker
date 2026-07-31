@@ -17,11 +17,15 @@ export function EditarCasoRechazadoForm({
   proveedores,
   materiales,
   onClose,
+  esGestor,
 }: {
   caso: CasoCompraConRelaciones | null;
   proveedores: Proveedor[];
   materiales: MaterialOpcion[];
   onClose: () => void;
+  // El operario nunca ve ni captura el monto — se queda igual (el gestor
+  // lo define cuando revise el caso de nuevo).
+  esGestor: boolean;
 }) {
   const router = useRouter();
   const [proveedorId, setProveedorId] = useState("");
@@ -107,7 +111,7 @@ export function EditarCasoRechazadoForm({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={esGestor ? "grid grid-cols-2 gap-3" : ""}>
             <div>
               <Label htmlFor="er-cantidad">Cantidad</Label>
               <Input
@@ -120,18 +124,20 @@ export function EditarCasoRechazadoForm({
                 required
               />
             </div>
-            <div>
-              <Label htmlFor="er-monto">Monto estimado (MXN)</Label>
-              <Input
-                id="er-monto"
-                name="monto_estimado"
-                type="number"
-                step="any"
-                min="0"
-                defaultValue={caso.monto_estimado}
-                required
-              />
-            </div>
+            {esGestor && (
+              <div>
+                <Label htmlFor="er-monto">Monto estimado (MXN)</Label>
+                <Input
+                  id="er-monto"
+                  name="monto_estimado"
+                  type="number"
+                  step="any"
+                  min="0"
+                  defaultValue={caso.monto_estimado}
+                  required
+                />
+              </div>
+            )}
           </div>
 
           {caso.motivo_rechazo && (

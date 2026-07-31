@@ -45,7 +45,7 @@ export async function crearCatalogo(
     if (error) return { ok: false, error: mensajeSupabase(error) };
   }
 
-  revalidatePath("/catalogos");
+  revalidatePath("/administracion");
   revalidatePath("/inventario");
   revalidatePath("/clientes");
   return { ok: true };
@@ -85,7 +85,7 @@ export async function actualizarProveedor(
     if (error) return { ok: false, error: mensajeSupabase(error) };
   }
 
-  revalidatePath("/catalogos");
+  revalidatePath("/administracion");
   revalidatePath("/proveedores");
   return { ok: true };
 }
@@ -96,7 +96,7 @@ export async function eliminarCatalogo(
 ): Promise<ActionResult> {
   if (DEMO) {
     store.eliminarCatalogo(tabla, id);
-    revalidatePath("/catalogos");
+    revalidatePath("/administracion");
     revalidatePath("/inventario");
     revalidatePath("/clientes");
     return { ok: true };
@@ -105,7 +105,7 @@ export async function eliminarCatalogo(
   const { error } = await supabase.from(tabla).delete().eq("id", id);
   if (error) return { ok: false, error: mensajeSupabase(error) };
 
-  revalidatePath("/catalogos");
+  revalidatePath("/administracion");
   revalidatePath("/inventario");
   revalidatePath("/clientes");
   return { ok: true };

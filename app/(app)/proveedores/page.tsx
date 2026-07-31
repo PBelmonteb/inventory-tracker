@@ -8,11 +8,26 @@ import {
   getMateriales,
   getNotificaciones,
   getProveedores,
+  getScorecardProveedores,
 } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProveedoresPage() {
+const TABS = [
+  "pendientes",
+  "por_autorizar",
+  "en_espera",
+  "rechazados",
+  "casos_del_mes",
+  "convenios",
+  "scorecard",
+] as const;
+
+export default async function ProveedoresPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
   // Siempre trae el historial completo: la pestaña "Casos del mes" lo
   // necesita de todos modos, y las demás pestañas filtran este mismo
   // arreglo en el cliente (ver components/proveedores-view.tsx).
@@ -23,8 +38,10 @@ export default async function ProveedoresPage() {
     proveedores,
     materiales,
     convenios,
+    scorecardProveedores,
     usuariosRes,
     configAutorizacion,
+    sp,
   ] = await Promise.all([
     getCurrentProfile(),
     getNotificaciones(),
@@ -32,9 +49,13 @@ export default async function ProveedoresPage() {
     getProveedores(),
     getMateriales(),
     getConvenios(),
+    getScorecardProveedores(),
     listarUsuariosParaAsignar(),
     obtenerConfiguracionAutorizacion(),
+    searchParams,
   ]);
+
+  const tabInicial = TABS.find((t) => t === sp.tab) ?? "pendientes";
 
   const opciones = materiales.map((m) => ({
     id: m.id,
@@ -50,10 +71,13 @@ export default async function ProveedoresPage() {
       materiales={opciones}
       materialesCompletos={materiales}
       convenios={convenios}
+      scorecardProveedores={scorecardProveedores}
+      emailAutomaticoDisponible={Boolean(process.env.RESEND_API_KEY)}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
       esGestor={esGestor(profile)}
       esAdmin={profile?.rol === "admin"}
       umbralAdmin={configAutorizacion.monto_umbral_admin}
+      tabInicial={tabInicial}
     />
   );
 }

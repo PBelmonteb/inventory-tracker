@@ -240,6 +240,6 @@ export async function aplicarConteo(conteoId: string): Promise<ActionResult> {
   revalidatePath("/conteos");
   revalidatePath("/inventario");
   revalidatePath("/movimientos");
-  revalidatePath("/reportes");
+  revalidatePath("/analisis");
   return { ok: true };
 }

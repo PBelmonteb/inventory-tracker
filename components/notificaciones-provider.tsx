@@ -9,6 +9,8 @@ import {
   useState,
 } from "react";
 import { usePathname } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import { DEMO } from "@/lib/config";
 import { obtenerNotificaciones } from "@/lib/actions/notificaciones";
 import { descartarNotificacion } from "@/lib/actions/compras";
 import type {
@@ -103,7 +105,8 @@ export function NotificacionesProvider({
     cargar(true);
   }, [pathname, cargar]);
 
-  // Refresco tras un movimiento + polling de respaldo (30s).
+  // Refresco tras un movimiento + polling de respaldo (60s) — igual que
+  // antes, sigue de respaldo por si Realtime se cae un momento.
   useEffect(() => {
     const onRefresh = () => cargar(true);
     window.addEventListener(NOTIF_REFRESH_EVENT, onRefresh);
@@ -111,6 +114,27 @@ export function NotificacionesProvider({
     return () => {
       window.removeEventListener(NOTIF_REFRESH_EVENT, onRefresh);
       clearInterval(t);
+    };
+  }, [cargar]);
+
+  // Tiempo real: cualquier notificación nueva o que cambie de estado (para
+  // este usuario — RLS filtra qué le llega, mismo criterio que
+  // getNotificaciones) recarga al instante, sin esperar el polling ni un
+  // cambio de página. Mismo patrón que ya usa InventarioView para
+  // materiales/movimientos.
+  useEffect(() => {
+    if (DEMO) return;
+    const supabase = createClient();
+    const canal = supabase
+      .channel("notificaciones-cambios")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "notificaciones" },
+        () => cargar(true)
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(canal);
     };
   }, [cargar]);
 

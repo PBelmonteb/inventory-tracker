@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Badge, Button, Card } from "@/components/ui";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { MovimientoForm } from "@/components/movimiento-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import { formatDate, formatQty } from "@/lib/utils";
@@ -13,7 +14,9 @@ import {
   ArrowRight,
   PackageCheck,
   Plus,
+  Search,
   Settings2,
+  X,
 } from "lucide-react";
 
 const TIPO_META = {
@@ -31,18 +34,70 @@ type MaterialOpcion = {
   ubicacion_id: string | null;
 };
 
+type UsuarioOpcion = { id: string; nombre: string };
+
 export function MovimientosView({
   movimientos,
   materiales,
   ubicaciones,
+  usuarios,
   pendientesCount = 0,
 }: {
   movimientos: MovimientoConRelaciones[];
   materiales: MaterialOpcion[];
   ubicaciones: Ubicacion[];
+  usuarios: UsuarioOpcion[];
   pendientesCount?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Texto/cantidad se escriben con debounce (evita una búsqueda por cada
+  // tecla); usuario/ubicación/fecha aplican de inmediato (son selects, no
+  // hay "a medio escribir"). Todo vive en la URL, no en estado ajeno —
+  // así el filtro sobrevive un refresh y se puede compartir el link.
+  const [q, setQ] = useState(searchParams.get("q") ?? "");
+  const [referencia, setReferencia] = useState(searchParams.get("referencia") ?? "");
+  const [cantidad, setCantidad] = useState(searchParams.get("cantidad") ?? "");
+  const primerRender = useRef(true);
+
+  function aplicarFiltro(cambios: Record<string, string | null>) {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [clave, valor] of Object.entries(cambios)) {
+      if (valor) params.set(clave, valor);
+      else params.delete(clave);
+    }
+    router.push(`${pathname}?${params.toString()}`);
+  }
+
+  useEffect(() => {
+    if (primerRender.current) {
+      primerRender.current = false;
+      return;
+    }
+    const t = setTimeout(() => {
+      aplicarFiltro({ q: q || null, referencia: referencia || null, cantidad: cantidad || null });
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, referencia, cantidad]);
+
+  const hayFiltros =
+    !!searchParams.get("q") ||
+    !!searchParams.get("referencia") ||
+    !!searchParams.get("cantidad") ||
+    !!searchParams.get("usuario") ||
+    !!searchParams.get("ubicacion") ||
+    !!searchParams.get("fecha");
+
+  function limpiarFiltros() {
+    setQ("");
+    setReferencia("");
+    setCantidad("");
+    router.push(pathname);
+  }
 
   return (
     <div className="mx-auto max-w-5xl p-4 md:p-8">
@@ -77,6 +132,74 @@ export function MovimientosView({
         </div>
       </div>
 
+      <Card className="mb-4 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[180px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+            <Input
+              className="pl-9"
+              placeholder="Material o SKU..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          <Input
+            className="w-40"
+            placeholder="Caso / referencia"
+            value={referencia}
+            onChange={(e) => setReferencia(e.target.value)}
+          />
+          <Input
+            className="w-28"
+            type="number"
+            step="any"
+            placeholder="Cantidad"
+            value={cantidad}
+            onChange={(e) => setCantidad(e.target.value)}
+          />
+          <Select
+            className="w-auto"
+            value={searchParams.get("usuario") ?? ""}
+            onChange={(e) => aplicarFiltro({ usuario: e.target.value || null })}
+          >
+            <option value="">Todos los usuarios</option>
+            {usuarios.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.nombre}
+              </option>
+            ))}
+          </Select>
+          <Select
+            className="w-auto"
+            value={searchParams.get("ubicacion") ?? ""}
+            onChange={(e) => aplicarFiltro({ ubicacion: e.target.value || null })}
+          >
+            <option value="">Todas las ubicaciones</option>
+            {ubicaciones.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.nombre}
+              </option>
+            ))}
+          </Select>
+          <Input
+            className="w-auto"
+            type="date"
+            value={searchParams.get("fecha") ?? ""}
+            onChange={(e) => aplicarFiltro({ fecha: e.target.value || null })}
+          />
+          {hayFiltros && (
+            <button
+              type="button"
+              onClick={limpiarFiltros}
+              className="inline-flex cursor-pointer items-center gap-1 text-sm text-accent hover:underline"
+            >
+              <X className="h-3.5 w-3.5" />
+              Limpiar
+            </button>
+          )}
+        </div>
+      </Card>
+
       {pendientesCount > 0 && (
         <Card className="mb-4 flex items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2.5 text-sm text-fg">
@@ -100,7 +223,9 @@ export function MovimientosView({
       <Card className="overflow-hidden">
         {movimientos.length === 0 ? (
           <p className="p-10 text-center text-sm text-muted">
-            Aún no hay movimientos.
+            {hayFiltros
+              ? "Nada coincide con estos filtros."
+              : "Aún no hay movimientos."}
           </p>
         ) : (
           <ul className="divide-y divide-line">

@@ -91,7 +91,7 @@ export async function registrarMovimiento(
   revalidatePath("/inventario");
   revalidatePath("/movimientos");
   revalidatePath(`/materiales/${material_id}`);
-  revalidatePath("/reportes");
+  revalidatePath("/analisis");
   return { ok: true };
 }
 

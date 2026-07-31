@@ -256,7 +256,7 @@ export async function confirmarSalidaPendiente(
   revalidatePath("/clientes");
   revalidatePath("/inventario");
   revalidatePath("/movimientos");
-  revalidatePath("/reportes");
+  revalidatePath("/analisis");
   // La salida puede dejar otro material bajo mínimo → nueva alerta al recargar.
   revalidatePath("/proveedores");
   return { ok: true };

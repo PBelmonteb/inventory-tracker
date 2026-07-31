@@ -60,6 +60,8 @@ function parseMaterial(formData: FormData) {
     aviso_modo: avisoModo as "unidad" | "porcentaje",
     costo_unitario: num("costo_unitario"),
     precio_venta: num("precio_venta"),
+    // Checkbox: ausente en FormData si está desmarcado.
+    requiere_inspeccion_calidad: formData.get("requiere_inspeccion_calidad") === "on",
   };
 }
 
@@ -162,9 +164,9 @@ export async function actualizarPreciosVenta(
     }
   }
 
-  revalidatePath("/precios");
+  revalidatePath("/administracion");
   revalidatePath("/inventario");
-  revalidatePath("/reportes");
+  revalidatePath("/analisis");
   return { ok: true };
 }
 

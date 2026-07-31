@@ -43,16 +43,8 @@ export function ReportesView({
   } = reportes;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-          Reportes
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Qué comprar y dónde está el dinero parado.
-        </p>
-      </div>
-
+    <div className="mx-auto max-w-7xl space-y-5">
+      {/* Sin h1 propio: vive como tab dentro de Análisis. */}
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi

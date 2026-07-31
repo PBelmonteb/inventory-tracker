@@ -16,25 +16,24 @@ import {
   Truck,
   Users,
   BarChart3,
-  Upload,
-  QrCode,
-  Tag,
-  ShieldCheck,
-  UserCog,
   Settings,
   Factory,
   LogOut,
-  FileText,
-  Sparkles,
   ClipboardList,
-  Grid3x3,
-  Award,
-  GitBranch,
   Home,
   Inbox,
   Route,
+  HelpCircle,
 } from "lucide-react";
 
+// Rediseño de menú (jul 2026): de 23 pestañas a 13 para el gestor,
+// agrupando por pestañas internas en vez de una entrada por función —
+// mismo patrón que ya validó Proveedores. Nada se perdió: Convenios y
+// Scorecard ahora son tabs de Proveedores; Reportes, Clasificación y MRP
+// son tabs de Análisis (/analisis); Catálogos, Usuarios, Auditoría,
+// Precios, Importar y Etiquetas son tabs de Administración
+// (/administracion); Novedades es un tab de Ayuda. Las rutas viejas
+// siguen vivas como redirects (ver cada app/(app)/<ruta>/page.tsx).
 const NAV = [
   { href: "/inicio", label: "Inicio", icon: Home },
   { href: "/aprobaciones", label: "Aprobaciones", icon: Inbox, gestor: true },
@@ -48,18 +47,9 @@ const NAV = [
   // Oculto para operario mientras no exista el rol "ventas" (ver
   // app/(app)/clientes/page.tsx para el bloqueo del lado servidor).
   { href: "/clientes", label: "Clientes", icon: Users, ocultoOperario: true },
-  { href: "/reportes", label: "Reportes", icon: BarChart3 },
-  { href: "/clasificacion", label: "Clasificación", icon: Grid3x3, gestor: true },
-  { href: "/scorecard-proveedores", label: "Scorecard", icon: Award, gestor: true },
-  { href: "/mrp", label: "MRP", icon: GitBranch, gestor: true },
-  { href: "/novedades", label: "Novedades", icon: Sparkles },
-  { href: "/precios", label: "Precios", icon: Tag, gestor: true },
-  { href: "/importar", label: "Importar", icon: Upload, gestor: true },
-  { href: "/etiquetas", label: "Etiquetas", icon: QrCode, gestor: true },
-  { href: "/auditoria", label: "Auditoría", icon: ShieldCheck, gestor: true },
-  { href: "/usuarios", label: "Usuarios", icon: UserCog, gestor: true },
-  { href: "/catalogos", label: "Catálogos", icon: Settings, gestor: true },
-  { href: "/convenios", label: "Convenios", icon: FileText, gestor: true },
+  { href: "/analisis", label: "Análisis", icon: BarChart3, gestor: true },
+  { href: "/administracion", label: "Administración", icon: Settings, gestor: true },
+  { href: "/ayuda", label: "Ayuda", icon: HelpCircle },
 ];
 
 function iniciales(nombre: string) {

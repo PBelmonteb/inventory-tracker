@@ -19,6 +19,8 @@ import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import { SolicitudCotizacionForm } from "@/components/solicitud-cotizacion-form";
 import { CasoDetalleModal } from "@/components/caso-detalle-modal";
 import { NuevoProveedorModal } from "@/components/nuevo-proveedor-modal";
+import { ConveniosView } from "@/components/convenios-view";
+import { ScorecardProveedoresView } from "@/components/scorecard-proveedores-view";
 import {
   asignarResponsableCasoCompra,
   cambiarEstadoCasoCompra,
@@ -30,6 +32,7 @@ import { esConvenioVigente } from "@/lib/convenios";
 import { DEMO } from "@/lib/config";
 import { formatDate, formatMoney, formatQty, normalizarTexto } from "@/lib/utils";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
+import type { ScorecardProveedorConNombre } from "@/lib/data";
 import type {
   CasoCompraConRelaciones,
   ConvenioConRelaciones,
@@ -76,7 +79,14 @@ const ABIERTOS: EstadoCasoCompra[] = [
   "ordenado",
 ];
 
-type TabId = "pendientes" | "por_autorizar" | "en_espera" | "rechazados" | "casos_del_mes";
+type TabId =
+  | "pendientes"
+  | "por_autorizar"
+  | "en_espera"
+  | "rechazados"
+  | "casos_del_mes"
+  | "convenios"
+  | "scorecard";
 
 export function ProveedoresView({
   notificaciones,
@@ -85,10 +95,13 @@ export function ProveedoresView({
   materiales,
   materialesCompletos,
   convenios,
+  scorecardProveedores,
+  emailAutomaticoDisponible,
   usuarios,
   esGestor,
   esAdmin,
   umbralAdmin,
+  tabInicial,
 }: {
   notificaciones: NotificacionConRelaciones[];
   casos: CasoCompraConRelaciones[];
@@ -96,6 +109,11 @@ export function ProveedoresView({
   materiales: MaterialOpcion[];
   materialesCompletos: MaterialConRelaciones[];
   convenios: ConvenioConRelaciones[];
+  // Tabs "Convenios" y "Scorecard" (antes páginas propias, ver
+  // memoria "reportes-gerenciales-ia-diseno" / rediseño de menú) —
+  // ambas gestor-only, igual que ya lo eran como páginas sueltas.
+  scorecardProveedores: ScorecardProveedorConNombre[];
+  emailAutomaticoDisponible: boolean;
   usuarios: UsuarioAsignable[];
   esGestor: boolean;
   // Arriba de umbralAdmin, un gerente ya no puede autorizar por su cuenta
@@ -103,9 +121,10 @@ export function ProveedoresView({
   // a cualquier gestor, no compromete dinero.
   esAdmin: boolean;
   umbralAdmin: number;
+  tabInicial?: TabId;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabId>("pendientes");
+  const [tab, setTab] = useState<TabId>(tabInicial ?? "pendientes");
   const [formAbierto, setFormAbierto] = useState(false);
   const [proveedorAbierto, setProveedorAbierto] = useState(false);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
@@ -178,7 +197,30 @@ export function ProveedoresView({
     { id: "en_espera", label: "Pendientes de llegar", count: casosEnEspera.length },
     { id: "rechazados", label: "Rechazados", count: casosRechazados.length },
     { id: "casos_del_mes", label: "Casos del mes", count: casos.length },
+    // Convenios/Scorecard eran páginas sueltas del menú — se juntan aquí
+    // por ser información de proveedor, igual que el resto de esta vista.
+    // Gestor-only, como ya lo eran.
+    ...(esGestor
+      ? [
+          { id: "convenios" as const, label: "Convenios", count: convenios.length },
+          {
+            id: "scorecard" as const,
+            label: "Scorecard",
+            count: scorecardProveedores.length,
+          },
+        ]
+      : []),
   ];
+
+  // Convenios necesita "unidad" (Reportes/Proveedores no la usan) — se
+  // deriva aquí de materialesCompletos en vez de pedirle a la página que
+  // mande una tercera variante de "opciones de material".
+  const materialesParaConvenio = materialesCompletos.map((m) => ({
+    id: m.id,
+    nombre: m.nombre,
+    sku: m.sku,
+    unidad: m.unidad,
+  }));
 
   function abrirDesdeNotificacion(n: NotificacionConRelaciones) {
     setPrefill({
@@ -299,6 +341,7 @@ export function ProveedoresView({
             onAsignarResponsable={asignarResponsable}
             onVerDetalle={setDetalleCaso}
             actions={actionsFor(c)}
+            esGestor={esGestor}
           />
         ))}
       </ul>
@@ -622,6 +665,19 @@ export function ProveedoresView({
         </Card>
       )}
 
+      {tab === "convenios" && esGestor && (
+        <ConveniosView
+          convenios={convenios}
+          proveedores={proveedores}
+          materiales={materialesParaConvenio}
+          emailAutomaticoDisponible={emailAutomaticoDisponible}
+        />
+      )}
+
+      {tab === "scorecard" && esGestor && (
+        <ScorecardProveedoresView proveedores={scorecardProveedores} />
+      )}
+
       <CasoCompraForm
         open={formAbierto}
         onClose={() => setFormAbierto(false)}
@@ -651,6 +707,7 @@ export function ProveedoresView({
         proveedores={proveedores}
         materiales={materiales}
         onClose={() => setEditandoRechazado(null)}
+        esGestor={esGestor}
       />
       {cotizacionCaso &&
         (() => {

@@ -183,7 +183,7 @@ export function InicioGestorView({ nombre, datos }: { nombre: string; datos: Ini
         <CardAccion
           titulo="MRP: qué hacer"
           icon={<GitBranch className="h-4 w-4 text-accent" />}
-          verTodosHref="/mrp"
+          verTodosHref="/analisis?tab=mrp"
           vacio={mrpAcciones.length === 0}
         >
           {mrpAcciones.map((r) => (
@@ -204,7 +204,7 @@ export function InicioGestorView({ nombre, datos }: { nombre: string; datos: Ini
         <CardAccion
           titulo="Stock bajo"
           icon={<PackageX className="h-4 w-4 text-red-500" />}
-          verTodosHref="/reportes"
+          verTodosHref="/analisis?tab=reportes"
           vacio={stockBajo.length === 0}
         >
           {stockBajo.map((m) => (

@@ -10,7 +10,7 @@ import {
   type ScorecardProveedor,
 } from "@/lib/scorecard-proveedores";
 import { correrMRP, type BomEdge, type MaterialParaMRP, type RequerimientoMRP } from "@/lib/mrp";
-import { nivelStock } from "@/lib/utils";
+import { nivelStock, normalizarTexto } from "@/lib/utils";
 import type {
   Auditoria,
   BomItemConMaterial,
@@ -25,6 +25,7 @@ import type {
   ConteoConItems,
   ConvenioConRelaciones,
   HistorialPrecio,
+  InspeccionCalidad,
   MaterialConRelaciones,
   MovimientoConRelaciones,
   NotificacionConRelaciones,
@@ -713,6 +714,66 @@ export async function getMovimientosRecientes(
   return (data as MovimientoConRelaciones[]) ?? [];
 }
 
+const LIMITE_BUSQUEDA_MOVIMIENTOS = 150;
+
+export interface FiltrosMovimientos {
+  // Nombre de material o SKU — ambos snapshoteados en el propio
+  // movimiento (historial autónomo), no hace falta el join para buscar.
+  q?: string;
+  referencia?: string; // identificador de caso (OC-xxxx, TRAS-xxxx, CONT-xxxx...)
+  cantidad?: number;
+  usuarioId?: string;
+  ubicacionId?: string;
+  fecha?: string; // YYYY-MM-DD, un solo día
+}
+
+// Búsqueda de movimientos (/movimientos): a diferencia de
+// getMovimientosRecientes (los N más nuevos, sin filtro), esta SÍ busca
+// contra el historial completo del lado del servidor — filtrar solo los
+// últimos 150 ya cargados no encontraría un movimiento de hace un mes.
+export async function buscarMovimientos(
+  filtros: FiltrosMovimientos = {}
+): Promise<MovimientoConRelaciones[]> {
+  if (DEMO) return store.buscarMovimientos(filtros);
+  const supabase = await createClient();
+  let query = supabase
+    .from("movimientos")
+    .select(
+      "*, materiales(id,nombre,sku,unidad), profiles(id,nombre), ubicaciones(id,nombre)"
+    )
+    .order("created_at", { ascending: false })
+    .limit(LIMITE_BUSQUEDA_MOVIMIENTOS);
+
+  if (filtros.q?.trim()) {
+    // Contra las columnas normalizadas (sin acentos, minúsculas — ver
+    // migración 0030) para que "silicon" encuentre "Silicón" igual que ya
+    // pasa en las búsquedas del lado del cliente (normalizarTexto).
+    // ',', '(' y ')' son sintaxis del filtro .or() de PostgREST — se
+    // quitan del término para que no rompan la expresión.
+    const q = normalizarTexto(filtros.q).replace(/[,()]/g, "");
+    if (q)
+      query = query.or(
+        `material_nombre_normalizado.ilike.%${q}%,material_sku_normalizado.ilike.%${q}%`
+      );
+  }
+  if (filtros.referencia?.trim()) {
+    query = query.ilike("referencia", `%${filtros.referencia.trim().replace(/[%_]/g, "")}%`);
+  }
+  if (filtros.cantidad != null && Number.isFinite(filtros.cantidad)) {
+    query = query.eq("cantidad", filtros.cantidad);
+  }
+  if (filtros.usuarioId) query = query.eq("usuario_id", filtros.usuarioId);
+  if (filtros.ubicacionId) query = query.eq("ubicacion_id", filtros.ubicacionId);
+  if (filtros.fecha) {
+    const inicio = new Date(`${filtros.fecha}T00:00:00`);
+    const fin = new Date(`${filtros.fecha}T23:59:59.999`);
+    query = query.gte("created_at", inicio.toISOString()).lte("created_at", fin.toISOString());
+  }
+
+  const { data } = await query;
+  return (data as MovimientoConRelaciones[]) ?? [];
+}
+
 export async function getCategorias(): Promise<Categoria[]> {
   if (DEMO) return store.getCategorias();
   const supabase = await createClient();
@@ -1002,6 +1063,58 @@ export async function getConteo(conteoId: string): Promise<ConteoConItems | null
   ]);
   if (!conteo) return null;
   return { ...(conteo as Conteo), items: (items as ConteoConItems["items"]) ?? [] };
+}
+
+// Todos los conteos ya aplicados, con sus items — a diferencia de
+// getConteo() (uno a la vez, para la vista de detalle), este trae el
+// lote completo. Lo usa el feed de KPIs de los reportes gerenciales
+// (lib/reportes-gerenciales.ts) para saber cuántos tuvieron diferencia
+// en un periodo dado; ningún otro llamador necesita hoy "todos de un
+// jalón".
+export async function getConteosAplicadosConItems(): Promise<ConteoConItems[]> {
+  if (DEMO) {
+    return store
+      .getConteos()
+      .filter((c) => c.estado === "aplicado")
+      .map((c) => store.getConteo(c.id))
+      .filter((c): c is ConteoConItems => c !== null);
+  }
+  const supabase = await createClient();
+  const { data: conteos } = await supabase
+    .from("conteos")
+    .select("*")
+    .eq("estado", "aplicado");
+  const lista = (conteos as Conteo[]) ?? [];
+  if (lista.length === 0) return [];
+
+  const { data: items } = await supabase
+    .from("conteo_items")
+    .select("*")
+    .in(
+      "conteo_id",
+      lista.map((c) => c.id)
+    );
+
+  const itemsPorConteo = new Map<string, ConteoConItems["items"]>();
+  for (const item of (items as ConteoConItems["items"]) ?? []) {
+    const acc = itemsPorConteo.get(item.conteo_id) ?? [];
+    acc.push(item);
+    itemsPorConteo.set(item.conteo_id, acc);
+  }
+
+  return lista.map((c) => ({ ...c, items: itemsPorConteo.get(c.id) ?? [] }));
+}
+
+/* ---------------- Bloqueo de calidad ---------------- */
+
+export async function getInspeccionesCalidad(): Promise<InspeccionCalidad[]> {
+  if (DEMO) return store.getInspeccionesCalidad();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("inspecciones_calidad")
+    .select("*")
+    .order("created_at", { ascending: false });
+  return (data as InspeccionCalidad[]) ?? [];
 }
 
 /* ---------------- Umbral de autorización ---------------- */

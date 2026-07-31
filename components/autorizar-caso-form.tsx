@@ -54,8 +54,8 @@ export function AutorizarCasoForm({
       setError("La cantidad debe ser mayor a cero");
       return;
     }
-    if (!Number.isFinite(montoNum) || montoNum < 0) {
-      setError("El monto no puede ser negativo");
+    if (!Number.isFinite(montoNum) || montoNum <= 0) {
+      setError("Captura el monto del pedido — el operario no lo captura, te toca a ti.");
       return;
     }
     setError(null);

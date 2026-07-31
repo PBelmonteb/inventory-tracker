@@ -66,17 +66,9 @@ export function PreciosView({
   }
 
   return (
-    <div className="mx-auto max-w-4xl p-4 md:p-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-            Precios de venta
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Ajusta el precio de venta de cada material. El margen se calcula
-            contra el costo promedio (WAC).
-          </p>
-        </div>
+    <div className="mx-auto max-w-4xl">
+      {/* Sin h1 propio: vive como tab dentro de Administración. */}
+      <div className="mb-6 flex justify-end">
         <div className="flex gap-2">
           <BotonExportarCSV
             filename="precios-costos"

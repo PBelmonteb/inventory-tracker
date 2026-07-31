@@ -13,6 +13,7 @@ import type {
   CasoCompraEvento,
   CasoVentaEvento,
   HistorialPrecio,
+  InspeccionCalidad,
   Material,
   Movimiento,
   Notificacion,
@@ -79,6 +80,7 @@ export function makeSeed(): {
   conteo_items: ConteoItem[];
   configuracion_autorizacion: ConfiguracionAutorizacion;
   traslados: Traslado[];
+  inspecciones_calidad: InspeccionCalidad[];
 } {
   const categorias: Categoria[] = [
     { id: "cat-perfiles", nombre: "Perfiles de aluminio", created_at: diasAtras(60) },
@@ -112,7 +114,8 @@ export function makeSeed(): {
     unidad: string,
     stock_actual: number,
     stock_minimo: number,
-    costo_unitario: number
+    costo_unitario: number,
+    requiereInspeccionCalidad = false
   ): Material => ({
     id,
     sku,
@@ -130,6 +133,7 @@ export function makeSeed(): {
     // Precio de venta de ejemplo: ~40% de margen sobre el costo.
     precio_venta: Math.round(costo_unitario * 1.4 * 100) / 100,
     activo: true,
+    requiere_inspeccion_calidad: requiereInspeccionCalidad,
     created_at: diasAtras(45),
     updated_at: diasAtras(2),
   });
@@ -137,7 +141,9 @@ export function makeSeed(): {
   const materiales: Material[] = [
     mat("mat-perf001", "PERF-001", 'Perfil aluminio 1" natural', "Perfil estructural 1 pulgada", "cat-perfiles", "ubi-a", "prov-norte", "m", 150, 200, 85.5),
     mat("mat-perf002", "PERF-002", 'Perfil aluminio 2" blanco', "Perfil ventana 2 pulgadas", "cat-perfiles", "ubi-a", "prov-norte", "m", 120, 150, 132.0),
-    mat("mat-lam001", "LAM-001", "Lámina aluminio 1mm", "Lámina lisa calibre 1mm", "cat-laminas", "ubi-b", "prov-norte", "pza", 40, 50, 410.0),
+    // Único material demo con inspección de calidad activada — para poder
+    // probar el flujo completo (recibir -> pendiente -> liberar/rechazar).
+    mat("mat-lam001", "LAM-001", "Lámina aluminio 1mm", "Lámina lisa calibre 1mm", "cat-laminas", "ubi-b", "prov-norte", "pza", 40, 50, 410.0, true),
     mat("mat-her001", "HER-001", "Bisagra reforzada", "Bisagra para puerta de aluminio", "cat-herrajes", "ubi-e1", "prov-mty", "pza", 80, 100, 28.9),
     mat("mat-her002", "HER-002", "Cerradura corrediza", "Cerradura para ventana corrediza", "cat-herrajes", "ubi-e1", "prov-mty", "pza", 200, 40, 64.0),
     mat("mat-tor001", "TOR-001", "Tornillo autorroscante #8", "Caja de 1000 piezas", "cat-tornilleria", "ubi-e1", "prov-tor", "caja", 7, 10, 220.0),
@@ -214,6 +220,7 @@ export function makeSeed(): {
       estado: "pendiente",
       origen: "stock_bajo",
       movimiento_id: null,
+      inspeccion_calidad_id: null,
       proveedor_nombre: "Aluminios del Norte",
       responsable_id: null,
       responsable_nombre: null,
@@ -240,6 +247,7 @@ export function makeSeed(): {
       estado: "ordenado",
       origen: "correo",
       movimiento_id: null,
+      inspeccion_calidad_id: null,
       proveedor_nombre: "Tornillos SA",
       responsable_id: "user-planta-1",
       responsable_nombre: "Jorge Medina (Planta)",
@@ -266,6 +274,7 @@ export function makeSeed(): {
       estado: "pendiente",
       origen: "manual",
       movimiento_id: null,
+      inspeccion_calidad_id: null,
       proveedor_nombre: "Herrajes MTY",
       responsable_id: null,
       responsable_nombre: null,
@@ -295,6 +304,7 @@ export function makeSeed(): {
       estado: "pendiente",
       origen: "manual",
       movimiento_id: null,
+      inspeccion_calidad_id: null,
       proveedor_nombre: "Herrajes MTY",
       responsable_id: null,
       responsable_nombre: null,
@@ -321,6 +331,7 @@ export function makeSeed(): {
       estado: "pendiente",
       origen: "manual",
       movimiento_id: null,
+      inspeccion_calidad_id: null,
       proveedor_nombre: "Aluminios del Norte",
       responsable_id: null,
       responsable_nombre: null,
@@ -631,5 +642,6 @@ export function makeSeed(): {
       updated_por_nombre: null,
     },
     traslados: [],
+    inspecciones_calidad: [],
   };
 }

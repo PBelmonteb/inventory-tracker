@@ -53,17 +53,8 @@ export function ScorecardProveedoresView({
   }, [proveedores, orden]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-8">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-          Scorecard de proveedores
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Cumplimiento de tiempo de entrega y de precio, del historial real de
-          compras ya recibidas — no de lo que cada proveedor promete.
-        </p>
-      </div>
-
+    <div className="mx-auto max-w-7xl space-y-5">
+      {/* Sin h1 propio: vive como tab dentro de Proveedores. */}
       <Card className="p-5">
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <Select

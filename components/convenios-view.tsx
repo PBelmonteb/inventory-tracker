@@ -77,18 +77,10 @@ export function ConveniosView({
   }
 
   return (
-    <div className="mx-auto max-w-5xl p-4 md:p-8">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-            Convenios con proveedores
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Precio pactado y condiciones por proveedor + material — se usan
-            para pre-llenar casos de compra (manual, cotización y reposición
-            automática).
-          </p>
-        </div>
+    <div className="mx-auto max-w-5xl">
+      {/* Sin h1 propio: esta vista vive como tab dentro de Proveedores
+          (ver components/proveedores-view.tsx), que ya pone el título. */}
+      <div className="mb-6 flex justify-end">
         <Button onClick={abrirNuevo}>
           <Plus className="h-4 w-4" /> Nuevo convenio
         </Button>

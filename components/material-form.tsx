@@ -316,6 +316,22 @@ export function MaterialForm({
           </p>
         </div>
 
+        <div className="rounded-lg border border-line bg-surface-2/40 p-2.5">
+          <label className="flex cursor-pointer items-start gap-2 text-sm text-fg">
+            <input
+              type="checkbox"
+              name="requiere_inspeccion_calidad"
+              defaultChecked={material?.requiere_inspeccion_calidad ?? false}
+              className="mt-0.5 h-4 w-4 cursor-pointer rounded border-line accent-accent"
+            />
+            Requiere inspección de calidad al recibir
+          </label>
+          <p className="mt-1 pl-6 text-xs text-faint">
+            Al recibir una compra, la cantidad queda pendiente de revisión en
+            vez de sumar stock — se libera o rechaza desde Aprobaciones.
+          </p>
+        </div>
+
         {!editando && (
           <div>
             <Label htmlFor="stock_inicial">Stock inicial (opcional)</Label>

@@ -50,7 +50,7 @@ export async function guardarUmbralAutorizacion(monto: number): Promise<ActionRe
     })
     .eq("id", true);
   if (error) return { ok: false, error: mensajeSupabase(error) };
-  revalidatePath("/usuarios");
+  revalidatePath("/administracion");
   revalidatePath("/proveedores");
   return { ok: true };
 }
@@ -68,8 +68,11 @@ export async function autorizarCasoCompra(
   await requireGestor();
   if (!Number.isFinite(cantidad) || cantidad <= 0)
     return { ok: false, error: "La cantidad debe ser mayor a cero" };
-  if (!Number.isFinite(monto) || monto < 0)
-    return { ok: false, error: "El monto no puede ser negativo" };
+  // >0, no solo >=0: el operario ya no manda ningún monto (queda en 0 al
+  // crear el caso), así que un gestor SIEMPRE tiene que capturar el real
+  // aquí antes de autorizar — nunca se puede colar un pedido a $0.
+  if (!Number.isFinite(monto) || monto <= 0)
+    return { ok: false, error: "Captura el monto del pedido antes de autorizar" };
 
   const yo = await getCurrentProfile();
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
@@ -263,20 +266,28 @@ export async function editarCasoRechazado(
   const titulo = String(formData.get("titulo") ?? "").trim();
   const descripcion = String(formData.get("descripcion") ?? "").trim() || null;
   const cantidadRaw = String(formData.get("cantidad_estimada") ?? "").trim();
-  const montoRaw = String(formData.get("monto_estimado") ?? "").trim();
   const cantidad_estimada = Number(cantidadRaw) || 0;
-  const monto_estimado = Number(montoRaw) || 0;
 
   if (!proveedor_id) return { ok: false, error: "Selecciona un proveedor" };
   if (!material_id) return { ok: false, error: "Selecciona un material" };
   if (!titulo) return { ok: false, error: "El título es obligatorio" };
   if (cantidad_estimada <= 0)
     return { ok: false, error: "La cantidad debe ser mayor a cero" };
-  if (monto_estimado <= 0)
-    return { ok: false, error: "El monto debe ser mayor a cero" };
 
   const yo = await getCurrentProfile();
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  // El monto solo lo captura un gestor — el operario nunca lo ve ni lo
+  // manda, así que no hay campo que leer ni que validar para él; el
+  // monto existente del caso se queda igual hasta que un gestor lo
+  // revise (mismo criterio que crearSolicitudCompra).
+  let monto_estimado: number | undefined;
+  if (esGestor(yo)) {
+    const montoRaw = String(formData.get("monto_estimado") ?? "").trim();
+    monto_estimado = Number(montoRaw) || 0;
+    if (monto_estimado <= 0)
+      return { ok: false, error: "El monto debe ser mayor a cero" };
+  }
 
   if (DEMO) {
     try {
@@ -313,7 +324,7 @@ export async function editarCasoRechazado(
       titulo,
       descripcion,
       cantidad_estimada,
-      monto_estimado,
+      ...(monto_estimado !== undefined ? { monto_estimado } : {}),
       estado: "por_autorizar",
       motivo_rechazo: null,
       updated_at: new Date().toISOString(),
@@ -363,6 +374,51 @@ export async function eliminarCasoCompra(casoId: string): Promise<ActionResult> 
   if (error) return { ok: false, error: mensajeSupabase(error) };
 
   revalidatePath("/proveedores");
+  return { ok: true };
+}
+
+// Resuelve una inspección de calidad pendiente: libera (todo o en parte) y/o
+// rechaza, con motivo si hay rechazo. La validación real de las cantidades
+// vive en lib/inspeccion-calidad.ts (espejada en la RPC) — acá solo se
+// exige el rol, igual que autorizarCasoCompra.
+export async function resolverInspeccionCalidad(
+  inspeccionId: string,
+  cantidadLiberada: number,
+  cantidadRechazada: number,
+  motivoRechazo: string | null
+): Promise<ActionResult> {
+  await requireGestor();
+
+  const yo = await getCurrentProfile();
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  if (DEMO) {
+    try {
+      store.resolverInspeccionCalidad(
+        inspeccionId,
+        cantidadLiberada,
+        cantidadRechazada,
+        motivoRechazo,
+        actor
+      );
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("resolver_inspeccion_calidad", {
+      p_inspeccion: inspeccionId,
+      p_cantidad_liberada: cantidadLiberada,
+      p_cantidad_rechazada: cantidadRechazada,
+      p_motivo_rechazo: motivoRechazo,
+    });
+    if (error) return { ok: false, error: mensajeSupabase(error) };
+  }
+
+  revalidatePath("/aprobaciones");
+  revalidatePath("/inventario");
+  revalidatePath("/movimientos");
+  revalidatePath("/analisis");
   return { ok: true };
 }
 

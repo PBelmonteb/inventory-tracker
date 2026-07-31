@@ -308,7 +308,7 @@ export function MaterialDetail({
           )}
           {esGestor && (
             <Link
-              href="/convenios"
+              href="/proveedores?tab=convenios"
               className="mt-2 inline-block text-xs font-medium text-accent hover:underline"
             >
               Administrar convenios →

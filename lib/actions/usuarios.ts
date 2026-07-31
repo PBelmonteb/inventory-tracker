@@ -163,7 +163,7 @@ export async function crearUsuario(formData: FormData): Promise<ActionResult> {
     if (updError) return { ok: false, error: mensajeSupabase(updError) };
   }
 
-  revalidatePath("/usuarios");
+  revalidatePath("/administracion");
   return { ok: true };
 }
 
@@ -193,7 +193,7 @@ export async function cambiarRolUsuario(
     .eq("id", userId);
   if (error) return { ok: false, error: mensajeSupabase(error) };
 
-  revalidatePath("/usuarios");
+  revalidatePath("/administracion");
   return { ok: true };
 }
 
@@ -226,6 +226,6 @@ export async function cambiarEstadoUsuario(
   });
   if (error) return { ok: false, error: mensajeSupabase(error) };
 
-  revalidatePath("/usuarios");
+  revalidatePath("/administracion");
   return { ok: true };
 }

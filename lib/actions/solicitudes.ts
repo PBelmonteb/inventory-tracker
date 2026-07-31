@@ -38,9 +38,11 @@ export async function obtenerSolicitudConCasos(
 // Ruteo por rol (solo cuando es UN proveedor — con varios todavía se está
 // comparando precio, no hay especificaciones cerradas que autorizar): si
 // quien crea el caso es operario, entra directo a "por_autorizar" y exige
-// material + cantidad + monto de una vez (un gestor lo va a autorizar tal
-// cual, así que debe venir completo). Si es gestor, sigue como hoy
-// ("pendiente", sin exigir nada — ya tiene la autoridad para ordenar).
+// material + cantidad de una vez (un gestor lo va a autorizar). El MONTO
+// nunca se le pide al operario — solo maneja material, el dinero es
+// decisión del gestor, que lo captura al autorizar (autorizarCasoCompra).
+// Si es gestor, sigue como hoy ("pendiente", sin exigir nada — ya tiene la
+// autoridad para ordenar).
 export async function crearSolicitudCompra(formData: FormData): Promise<ActionResult> {
   const proveedorIds = formData
     .getAll("proveedor_ids")
@@ -70,8 +72,8 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
       return { ok: false, error: "Selecciona un material — hace falta para mandar el caso a autorización" };
     if (!cantidad_estimada)
       return { ok: false, error: "Captura la cantidad estimada — hace falta para mandar el caso a autorización" };
-    if (!montoEstimadoInput)
-      return { ok: false, error: "Captura el monto estimado — hace falta para mandar el caso a autorización" };
+    // Sin monto a propósito: el operario no lo captura, el gestor lo pone
+    // al autorizar (ver AutorizarCasoForm / autorizarCasoCompra).
   }
   const estadoInicial = requiereAutorizacion ? "por_autorizar" : "pendiente";
 

@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react";
 import { Card, Badge } from "@/components/ui";
 import { NOVEDADES, type TipoNovedad } from "@/lib/novedades";
 
@@ -16,19 +15,8 @@ const TIPO_TONE: Record<TipoNovedad, "accent" | "ok" | "neutral"> = {
 
 export function NovedadesView() {
   return (
-    <div className="mx-auto max-w-3xl p-4 md:p-8">
-      <div className="mb-6 flex items-center gap-2">
-        <Sparkles className="h-6 w-6 text-accent" />
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
-            Novedades
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Cómo ha ido evolucionando la app, mes a mes.
-          </p>
-        </div>
-      </div>
-
+    <div className="mx-auto max-w-3xl">
+      {/* Sin h1 propio: vive como tab dentro de Ayuda. */}
       <Card className="mb-8 p-4 text-sm text-muted">
         Esta página se va actualizando conforme se agregan nuevas funciones o
         se corrigen cosas — no es una lista cerrada.
