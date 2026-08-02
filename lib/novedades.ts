@@ -19,6 +19,53 @@ export interface NovedadesMes {
  */
 export const NOVEDADES: NovedadesMes[] = [
   {
+    mes: "Agosto 2026",
+    items: [
+      {
+        titulo: "Menú más simple",
+        descripcion:
+          "El menú del gestor bajó de 23 a 13 pestañas: reportes, clasificación y planeación viven ahora en \"Análisis\"; catálogos, usuarios y configuración en \"Administración\". Todo en el mismo lugar de siempre, solo que más ordenado.",
+        tipo: "mejora",
+      },
+      {
+        titulo: "Bloqueo de calidad al recibir",
+        descripcion:
+          "Marca un material como \"requiere inspección\" y, cuando llegue una compra, la cantidad queda pendiente de revisión en vez de sumar al inventario de inmediato — se libera o rechaza (todo o en parte) desde la bandeja de aprobaciones.",
+        tipo: "nuevo",
+      },
+      {
+        titulo: "Centro de ayuda",
+        descripcion:
+          "Preguntas frecuentes con respuesta paso a paso, organizadas por tema y con buscador, directo en la app.",
+        tipo: "nuevo",
+      },
+      {
+        titulo: "Vistas y filtros guardados",
+        descripcion:
+          "En Movimientos, guarda tu combinación de filtros favorita con un nombre y aplícala con un clic la próxima vez, sin volver a armarla.",
+        tipo: "nuevo",
+      },
+      {
+        titulo: "Editar el mínimo directo en la tabla",
+        descripcion:
+          "Ya no hace falta abrir el material para cambiar su stock mínimo — se edita directo en la lista de Inventario y se guarda en lote.",
+        tipo: "mejora",
+      },
+      {
+        titulo: "Mini-gráfica de consumo",
+        descripcion:
+          "Cada material en Inventario muestra ahora su consumo de los últimos 30 días de un vistazo, para detectar un patrón raro sin entrar al detalle.",
+        tipo: "nuevo",
+      },
+      {
+        titulo: "Mejor detección de montos en cotizaciones",
+        descripcion:
+          "Al comparar cotizaciones de varios proveedores por correo, el sistema ahora sí detecta y actualiza el monto de la respuesta — y lo marca \"sin confirmar\" para que lo revises antes de elegir con quién comprar.",
+        tipo: "mejora",
+      },
+    ],
+  },
+  {
     mes: "Julio 2026",
     items: [
       {
