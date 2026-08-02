@@ -21,6 +21,7 @@ import type {
   SalidaPendienteConRelaciones,
   Conteo,
   NotificacionConRelaciones,
+  SolicitudCompraConRelaciones,
 } from "@/lib/types";
 
 const LIMITE_LISTA = 6;
@@ -109,6 +110,36 @@ export async function getInicioOperario(profileId: string): Promise<InicioOperar
     salidasPendientes,
     // Ya vienen acotadas a lo que le toca a este usuario (RLS +
     // usuario_id null = global) — ver Notificacion en lib/types.ts.
+    notificaciones: notificaciones.slice(0, LIMITE_LISTA),
+  };
+}
+
+// Igual que InicioGestor pero recortado a lo de compras: nada de
+// valorInventario/conteos (eso no es su trabajo) — solo lo que puede
+// decidir (autorizar/rechazar caso, elegir cotización ganadora).
+export interface InicioCompras {
+  kpis: {
+    casosPorAutorizar: number;
+    solicitudesPorResolver: number;
+  };
+  porAutorizar: CasoPorAutorizar[];
+  solicitudesPorResolver: SolicitudCompraConRelaciones[];
+  notificaciones: NotificacionConRelaciones[];
+}
+
+export async function getInicioCompras(): Promise<InicioCompras> {
+  const [bandeja, notificaciones] = await Promise.all([
+    getBandejaAprobaciones(),
+    getNotificaciones(),
+  ]);
+
+  return {
+    kpis: {
+      casosPorAutorizar: bandeja.porAutorizar.length,
+      solicitudesPorResolver: bandeja.solicitudesPorResolver.length,
+    },
+    porAutorizar: bandeja.porAutorizar.slice(0, LIMITE_LISTA),
+    solicitudesPorResolver: bandeja.solicitudesPorResolver.slice(0, LIMITE_LISTA),
     notificaciones: notificaciones.slice(0, LIMITE_LISTA),
   };
 }

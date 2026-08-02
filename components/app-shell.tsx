@@ -36,17 +36,46 @@ import {
 // siguen vivas como redirects (ver cada app/(app)/<ruta>/page.tsx).
 const NAV = [
   { href: "/inicio", label: "Inicio", icon: Home },
-  { href: "/aprobaciones", label: "Aprobaciones", icon: Inbox, gestor: true },
+  // Aprobaciones también es de compras (autorizar/rechazar casos, elegir
+  // cotización ganadora) — filtrado a solo eso dentro de la página misma.
+  { href: "/aprobaciones", label: "Aprobaciones", icon: Inbox, gestorOCompras: true },
   { href: "/inventario", label: "Inventario", icon: Boxes },
-  { href: "/escanear", label: "Escanear", icon: ScanLine },
-  { href: "/movimientos", label: "Movimientos", icon: ArrowLeftRight },
-  { href: "/conteos", label: "Conteos", icon: ClipboardList },
-  { href: "/traslados", label: "Traslados", icon: Route },
-  { href: "/produccion", label: "Producción", icon: Factory },
+  {
+    href: "/escanear",
+    label: "Escanear",
+    icon: ScanLine,
+    ocultoCompras: true,
+  },
+  {
+    href: "/movimientos",
+    label: "Movimientos",
+    icon: ArrowLeftRight,
+    ocultoCompras: true,
+  },
+  {
+    href: "/conteos",
+    label: "Conteos",
+    icon: ClipboardList,
+    ocultoCompras: true,
+  },
+  { href: "/traslados", label: "Traslados", icon: Route, ocultoCompras: true },
+  {
+    href: "/produccion",
+    label: "Producción",
+    icon: Factory,
+    ocultoCompras: true,
+  },
   { href: "/proveedores", label: "Proveedores", icon: Truck },
   // Oculto para operario mientras no exista el rol "ventas" (ver
-  // app/(app)/clientes/page.tsx para el bloqueo del lado servidor).
-  { href: "/clientes", label: "Clientes", icon: Users, ocultoOperario: true },
+  // app/(app)/clientes/page.tsx para el bloqueo del lado servidor). También
+  // oculto para compras — clientes/ventas no es su función.
+  {
+    href: "/clientes",
+    label: "Clientes",
+    icon: Users,
+    ocultoOperario: true,
+    ocultoCompras: true,
+  },
   { href: "/analisis", label: "Análisis", icon: BarChart3, gestor: true },
   { href: "/administracion", label: "Administración", icon: Settings, gestor: true },
   { href: "/ayuda", label: "Ayuda", icon: HelpCircle },
@@ -71,10 +100,13 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const esGestor = profile.rol === "admin" || profile.rol === "gerente";
+  const puedeGestionarCompras = esGestor || profile.rol === "compras";
   const items = NAV.filter(
     (i) =>
       (!i.gestor || esGestor) &&
-      !(i.ocultoOperario && profile.rol === "operario")
+      (!i.gestorOCompras || puedeGestionarCompras) &&
+      !(i.ocultoOperario && profile.rol === "operario") &&
+      !(i.ocultoCompras && profile.rol === "compras")
   );
 
   async function signOut() {

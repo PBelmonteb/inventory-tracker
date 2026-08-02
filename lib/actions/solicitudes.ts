@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile, esGestor } from "@/lib/auth";
+import { getCurrentProfile, puedeGestionarCompras } from "@/lib/auth";
 import { registrarEventoCaso } from "@/lib/eventos-caso";
 import { resolverSolicitud } from "@/lib/solicitudes";
 import { getEventosCaso, getSolicitudConCasos } from "@/lib/data";
@@ -65,7 +65,7 @@ export async function crearSolicitudCompra(formData: FormData): Promise<ActionRe
   const yo = await getCurrentProfile();
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
   const esUnSoloProveedor = proveedorIds.length === 1;
-  const requiereAutorizacion = esUnSoloProveedor && Boolean(yo) && !esGestor(yo);
+  const requiereAutorizacion = esUnSoloProveedor && Boolean(yo) && !puedeGestionarCompras(yo);
 
   if (requiereAutorizacion) {
     if (!material_id)
@@ -248,7 +248,7 @@ export async function elegirGanadora(
     return { ok: false, error: "Datos inválidos" };
 
   const yo = await getCurrentProfile();
-  if (!esGestor(yo)) return { ok: false, error: "No autorizado" };
+  if (!puedeGestionarCompras(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {

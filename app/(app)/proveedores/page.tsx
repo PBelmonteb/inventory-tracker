@@ -1,5 +1,5 @@
 import { ProveedoresView } from "@/components/proveedores-view";
-import { getCurrentProfile, esGestor } from "@/lib/auth";
+import { getCurrentProfile, puedeGestionarCompras } from "@/lib/auth";
 import { listarUsuariosParaAsignar } from "@/lib/actions/usuarios";
 import { obtenerConfiguracionAutorizacion } from "@/lib/actions/autorizacion";
 import {
@@ -74,7 +74,7 @@ export default async function ProveedoresPage({
       scorecardProveedores={scorecardProveedores}
       emailAutomaticoDisponible={Boolean(process.env.RESEND_API_KEY)}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
-      esGestor={esGestor(profile)}
+      esGestor={puedeGestionarCompras(profile)}
       esAdmin={profile?.rol === "admin"}
       umbralAdmin={configAutorizacion.monto_umbral_admin}
       tabInicial={tabInicial}

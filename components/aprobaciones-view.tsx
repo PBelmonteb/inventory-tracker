@@ -50,10 +50,18 @@ function Seccion({
 
 export function AprobacionesView({
   bandeja,
+  esGestor,
+  puedeGestionarCompras,
   esAdmin,
   umbralAdmin,
 }: {
   bandeja: BandejaAprobaciones;
+  // Gestor "de verdad" (admin/gerente) — para lo que compras NO debe
+  // heredar (conteos cíclicos). puedeGestionarCompras es gestor o compras,
+  // para lo que sí es de ambos (autorizar/rechazar caso, elegir ganadora,
+  // editar monto).
+  esGestor: boolean;
+  puedeGestionarCompras: boolean;
   esAdmin: boolean;
   umbralAdmin: number;
 }) {
@@ -197,13 +205,13 @@ export function AprobacionesView({
         umbralAdmin={umbralAdmin}
         onClose={() => setAutorizando(null)}
       />
-      <ConteoDetalleModal conteo={conteoAbierto} esGestor onClose={() => setConteoAbierto(null)} />
+      <ConteoDetalleModal conteo={conteoAbierto} esGestor={esGestor} onClose={() => setConteoAbierto(null)} />
       <ResolverInspeccionForm inspeccion={inspeccionAbierta} onClose={() => setInspeccionAbierta(null)} />
       <CasoDetalleModal
         open={Boolean(detalleCaso)}
         onClose={() => setDetalleCaso(null)}
         caso={detalleCaso}
-        esGestor
+        esGestor={puedeGestionarCompras}
       />
     </div>
   );

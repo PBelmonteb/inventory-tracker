@@ -20,6 +20,7 @@ const ROL_LABEL: Record<Rol, string> = {
   admin: "Admin",
   gerente: "Gerente",
   operario: "Operario",
+  compras: "Compras",
 };
 
 // Sin caracteres ambiguos (I/l/O/0/1) — esta contraseña se comparte a mano
@@ -278,6 +279,7 @@ function NuevoUsuarioForm({
           <Label htmlFor="rol">Rol</Label>
           <Select id="rol" name="rol" defaultValue="operario">
             <option value="operario">Operario</option>
+            <option value="compras">Compras</option>
             <option value="gerente">Gerente</option>
             <option value="admin">Admin</option>
           </Select>

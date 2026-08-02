@@ -1,6 +1,6 @@
 // Tipos del dominio (espejo del esquema de la base de datos).
 
-export type Rol = "admin" | "gerente" | "operario";
+export type Rol = "admin" | "gerente" | "operario" | "compras";
 export type TipoMovimiento = "entrada" | "salida" | "ajuste";
 
 export interface Profile {

@@ -5,14 +5,15 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile, esGestor } from "@/lib/auth";
+import { getCurrentProfile, puedeGestionarCompras } from "@/lib/auth";
 import type { Convenio } from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-async function requireGestor() {
+// Gestionar convenios es tarea de compras además de gestor.
+async function requireGestorOCompras() {
   const profile = await getCurrentProfile();
-  if (!profile || !esGestor(profile)) throw new Error("No autorizado");
+  if (!profile || !puedeGestionarCompras(profile)) throw new Error("No autorizado");
 }
 
 interface DatosConvenio {
@@ -70,7 +71,7 @@ function parsearFormData(formData: FormData): DatosConvenio | { error: string } 
 
 export async function crearConvenio(formData: FormData): Promise<ActionResult> {
   try {
-    await requireGestor();
+    await requireGestorOCompras();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -118,7 +119,7 @@ export async function actualizarConvenio(
   formData: FormData
 ): Promise<ActionResult> {
   try {
-    await requireGestor();
+    await requireGestorOCompras();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -178,7 +179,7 @@ export async function actualizarConvenio(
 // (mismo criterio que eliminarMaterial: activo=false, no delete).
 export async function desactivarConvenio(id: string): Promise<ActionResult> {
   try {
-    await requireGestor();
+    await requireGestorOCompras();
   } catch {
     return { ok: false, error: "No autorizado" };
   }

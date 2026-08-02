@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile, esGestor } from "@/lib/auth";
+import { getCurrentProfile, puedeGestionarCompras } from "@/lib/auth";
 import { registrarEventoCaso } from "@/lib/eventos-caso";
 import { resolverSolicitud } from "@/lib/solicitudes";
 import { formatearCorreoEvento } from "@/lib/email-caso";
@@ -115,7 +115,7 @@ export async function asignarResponsableCasoCompra(
 
 // Corrige/confirma el monto de un caso — típicamente porque el que puso
 // el sistema solo (regex sobre un correo, ver lib/email-caso.ts) estaba
-// mal. Gestor-only: es el mismo dato que decide quién gana una
+// mal. Gestor o compras: es el mismo dato que decide quién gana una
 // comparación de cotizaciones.
 export async function actualizarMontoCaso(
   casoId: string,
@@ -125,7 +125,7 @@ export async function actualizarMontoCaso(
     return { ok: false, error: "El monto no puede ser negativo" };
 
   const yo = await getCurrentProfile();
-  if (!yo || !esGestor(yo)) return { ok: false, error: "No autorizado" };
+  if (!yo || !puedeGestionarCompras(yo)) return { ok: false, error: "No autorizado" };
   const actor = { id: yo.id, nombre: yo.nombre };
 
   if (DEMO) {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Badge, Card } from "@/components/ui";
 import { ESTADO_META } from "@/components/caso-compra-card";
 import { formatMoney, formatQty, formatDate } from "@/lib/utils";
-import type { InicioGestor, InicioOperario } from "@/lib/inicio";
+import type { InicioGestor, InicioOperario, InicioCompras } from "@/lib/inicio";
 import {
   Wallet,
   AlertTriangle,
@@ -219,6 +219,103 @@ export function InicioGestorView({ nombre, datos }: { nombre: string; datos: Ini
           ))}
         </CardAccion>
       </div>
+    </div>
+  );
+}
+
+// Igual espíritu que InicioGestorView (KPIs + bandeja) pero recortado a lo
+// de compras — sin valorInventario ni conteos, eso no es su trabajo.
+export function InicioComprasView({ nombre, datos }: { nombre: string; datos: InicioCompras }) {
+  const { kpis, porAutorizar, solicitudesPorResolver, notificaciones } = datos;
+  const totalAprobaciones = kpis.casosPorAutorizar + kpis.solicitudesPorResolver;
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
+            Hola, {nombre.split(" ")[0]}
+          </h1>
+          <p className="mt-1 text-sm text-muted">Esto es lo que necesita tu atención hoy.</p>
+        </div>
+        <Link
+          href="/aprobaciones"
+          className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-fg transition-colors hover:border-accent hover:text-accent"
+        >
+          <Inbox className="h-4 w-4" />
+          Bandeja de aprobaciones
+          {totalAprobaciones > 0 && <Badge tone="danger">{totalAprobaciones}</Badge>}
+        </Link>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-2">
+        <Kpi
+          icon={<AlertTriangle className="h-5 w-5" />}
+          label="Por autorizar"
+          value={String(kpis.casosPorAutorizar)}
+          tone={kpis.casosPorAutorizar > 0 ? "danger" : "accent"}
+        />
+        <Kpi
+          icon={<Scale className="h-5 w-5" />}
+          label="Solicitudes por resolver"
+          value={String(kpis.solicitudesPorResolver)}
+          tone={kpis.solicitudesPorResolver > 0 ? "warn" : "accent"}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <CardAccion
+          titulo="Por autorizar"
+          icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
+          verTodosHref="/proveedores"
+          vacio={porAutorizar.length === 0}
+        >
+          {porAutorizar.map((c) => (
+            <li key={c.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+              <div className="min-w-0">
+                <Link href="/proveedores" className="font-medium text-fg hover:text-accent">
+                  {c.titulo}
+                </Link>
+                <p className="truncate text-xs text-faint">{c.proveedores?.nombre ?? "Sin proveedor"}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {c.requiereAdmin && <Badge tone="danger">Requiere admin</Badge>}
+                <span className="font-medium text-fg">{formatMoney(c.monto_estimado)}</span>
+              </div>
+            </li>
+          ))}
+        </CardAccion>
+
+        <CardAccion
+          titulo="Solicitudes por resolver"
+          icon={<Scale className="h-4 w-4 text-amber-500" />}
+          verTodosHref="/aprobaciones"
+          vacio={solicitudesPorResolver.length === 0}
+        >
+          {solicitudesPorResolver.map((s) => (
+            <li key={s.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+              <Link href="/aprobaciones" className="min-w-0 truncate font-medium text-fg hover:text-accent">
+                {s.titulo}
+              </Link>
+              <span className="shrink-0 text-xs text-faint">{s.codigo}</span>
+            </li>
+          ))}
+        </CardAccion>
+      </div>
+
+      <CardAccion
+        titulo="Notificaciones"
+        icon={<Bell className="h-4 w-4 text-accent" />}
+        verTodosHref="/inventario"
+        vacio={notificaciones.length === 0}
+      >
+        {notificaciones.map((n) => (
+          <li key={n.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+            <span className="min-w-0 truncate text-fg">{n.mensaje}</span>
+            <span className="shrink-0 text-xs text-faint">{formatDate(n.created_at)}</span>
+          </li>
+        ))}
+      </CardAccion>
     </div>
   );
 }

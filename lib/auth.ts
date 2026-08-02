@@ -34,3 +34,10 @@ export const getCurrentProfile = cache(
 export function esGestor(profile: Profile | null): boolean {
   return profile?.rol === "admin" || profile?.rol === "gerente";
 }
+
+/** True si el perfil puede autorizar/rechazar casos de compra, gestionar
+ *  proveedores/convenios y elegir cotización ganadora — gestor o compras.
+ *  NO da acceso a materiales/usuarios/costos (eso sigue siendo esGestor). */
+export function puedeGestionarCompras(profile: Profile | null): boolean {
+  return esGestor(profile) || profile?.rol === "compras";
+}

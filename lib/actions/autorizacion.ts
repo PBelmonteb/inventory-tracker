@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile, esGestor } from "@/lib/auth";
+import { getCurrentProfile, esGestor, puedeGestionarCompras } from "@/lib/auth";
 import { registrarEventoCaso } from "@/lib/eventos-caso";
 import { enviarCorreo } from "@/lib/email";
 import { enviarPush } from "@/lib/push";
@@ -19,6 +19,14 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 async function requireGestor() {
   const profile = await getCurrentProfile();
   if (!profile || !esGestor(profile)) throw new Error("No autorizado");
+}
+
+// Autorizar/rechazar un caso de compra también es tarea de compras, no
+// solo de un gestor — a diferencia de resolverInspeccionCalidad (calidad
+// no es de compras), que se queda en requireGestor().
+async function requireGestorOCompras() {
+  const profile = await getCurrentProfile();
+  if (!profile || !puedeGestionarCompras(profile)) throw new Error("No autorizado");
 }
 
 export async function obtenerConfiguracionAutorizacion(): Promise<ConfiguracionAutorizacion> {
@@ -65,7 +73,7 @@ export async function autorizarCasoCompra(
   cantidad: number,
   monto: number
 ): Promise<ActionResult> {
-  await requireGestor();
+  await requireGestorOCompras();
   if (!Number.isFinite(cantidad) || cantidad <= 0)
     return { ok: false, error: "La cantidad debe ser mayor a cero" };
   // >0, no solo >=0: el operario ya no manda ningún monto (queda en 0 al
@@ -191,7 +199,7 @@ export async function rechazarCasoCompra(
   casoId: string,
   motivo?: string
 ): Promise<ActionResult> {
-  await requireGestor();
+  await requireGestorOCompras();
   const yo = await getCurrentProfile();
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
   const motivoLimpio = motivo?.trim() || null;
@@ -282,7 +290,7 @@ export async function editarCasoRechazado(
   // monto existente del caso se queda igual hasta que un gestor lo
   // revise (mismo criterio que crearSolicitudCompra).
   let monto_estimado: number | undefined;
-  if (esGestor(yo)) {
+  if (puedeGestionarCompras(yo)) {
     const montoRaw = String(formData.get("monto_estimado") ?? "").trim();
     monto_estimado = Number(montoRaw) || 0;
     if (monto_estimado <= 0)
