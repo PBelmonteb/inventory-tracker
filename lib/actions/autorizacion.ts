@@ -358,6 +358,8 @@ export async function editarCasoRechazado(
 // que borrarlo no corrompe nada; sus eventos se van con él (on delete
 // cascade, migración 0020).
 export async function eliminarCasoCompra(casoId: string): Promise<ActionResult> {
+  await requireGestorOCompras();
+
   if (DEMO) {
     try {
       store.eliminarCasoCompraRechazado(casoId);
