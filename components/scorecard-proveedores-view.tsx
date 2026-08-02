@@ -82,6 +82,9 @@ export function ScorecardProveedoresView({
                 "Cumplimiento precio %": p.cumplimientoPrecio
                   ? Math.round(p.cumplimientoPrecio.pct * 10) / 10
                   : "",
+                "Cumplimiento calidad %": p.cumplimientoCalidad
+                  ? Math.round(p.cumplimientoCalidad.pct * 10) / 10
+                  : "",
                 "Score general": p.scoreGeneral ? Math.round(p.scoreGeneral * 10) / 10 : "",
               }))}
               label="CSV"
@@ -104,7 +107,8 @@ export function ScorecardProveedoresView({
                   <th className="py-2 pr-3 text-right font-medium">Valor comprado</th>
                   <th className="py-2 pr-3 text-right font-medium">Lead time real</th>
                   <th className="py-2 pr-3 text-center font-medium">Cumple entrega</th>
-                  <th className="py-2 text-center font-medium">Cumple precio</th>
+                  <th className="py-2 pr-3 text-center font-medium">Cumple precio</th>
+                  <th className="py-2 text-center font-medium">Cumple calidad</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -134,8 +138,11 @@ export function ScorecardProveedoresView({
                     <td className="py-2.5 pr-3 text-center">
                       <CeldaCumplimiento metrica={p.cumplimientoEntrega} />
                     </td>
-                    <td className="py-2.5 text-center">
+                    <td className="py-2.5 pr-3 text-center">
                       <CeldaCumplimiento metrica={p.cumplimientoPrecio} />
+                    </td>
+                    <td className="py-2.5 text-center">
+                      <CeldaCumplimiento metrica={p.cumplimientoCalidad} />
                     </td>
                   </tr>
                 ))}
@@ -147,10 +154,11 @@ export function ScorecardProveedoresView({
         <p className="mt-4 text-xs text-faint">
           Cumple entrega: el pedido llegó dentro de lo pactado en convenio (o,
           si no hay convenio, lo declarado por el proveedor). Cumple precio: el
-          precio pagado no superó el precio pactado en convenio. Ambas solo se
-          calculan sobre pedidos con un dato de referencia — sin convenio ni
-          tiempo declarado, no hay "cumplió o no". La calidad no se mide
-          todavía — no hay ningún dato en la app hoy que la capture.
+          precio pagado no superó el precio pactado en convenio. Cumple
+          calidad: de lo que se recibió con bloqueo de calidad activo y ya se
+          revisó, no se rechazó nada. Las tres solo se calculan sobre pedidos
+          con un dato de referencia — sin convenio, tiempo declarado o
+          inspección resuelta, no hay "cumplió o no".
         </p>
       </Card>
     </div>

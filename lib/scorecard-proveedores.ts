@@ -1,9 +1,6 @@
-// Scorecard de proveedores — cumplimiento de tiempo de entrega y de precio,
-// calculado del historial real de compras YA recibidas (nada declarado a
-// mano, nada inventado). "Calidad" (el tercer eje que usa SAP) se deja
-// fuera a propósito: no hay ningún dato en la app hoy que la mida sin
-// fabricarlo — el día que exista (p. ej. bloqueo de calidad al recibir),
-// se agrega aquí, no antes.
+// Scorecard de proveedores — cumplimiento de tiempo de entrega, precio y
+// calidad, calculado del historial real de compras YA recibidas (nada
+// declarado a mano, nada inventado).
 //
 //   Tiempo de entrega: por cada compra recibida, "lead time real" = días
 //   entre que se creó el caso y que se marcó recibido (mismo criterio que
@@ -17,9 +14,17 @@
 //   superó el precio pactado en convenio (con 1 centavo de tolerancia por
 //   redondeo, no de negocio).
 //
-// Ambas métricas solo se calculan sobre los casos que sí tienen un dato de
-// referencia (convenio o declarado) — sin eso, no hay "cumplió o no",
-// solo un promedio informativo.
+//   Calidad: "cumplió" si, de lo recibido con bloqueo de calidad activo
+//   (materiales opt-in "requiere_inspeccion_calidad", ver
+//   lib/inspeccion-calidad.ts), un gestor ya resolvió la inspección y no
+//   rechazó nada. Solo existe dato para materiales que de verdad se
+//   inspeccionan — un proveedor que nunca vende algo así simplemente no
+//   tiene esta métrica, no cuenta como "cumple 100%" por default.
+//
+// Las tres métricas solo se calculan sobre los casos que sí tienen un dato
+// de referencia (convenio/declarado para entrega y precio; una inspección
+// ya resuelta para calidad) — sin eso, no hay "cumplió o no", solo un
+// promedio informativo.
 
 const TOLERANCIA_PRECIO_CENTAVOS = 0.01;
 const MS_POR_DIA = 1000 * 60 * 60 * 24;
@@ -34,6 +39,8 @@ export interface CasoRecibidoParaScorecard {
   diasEntregaComprometido: number | null;
   /** Del convenio (proveedor, material) de este caso, si existe. */
   precioPactado: number | null;
+  /** Solo si el material tenía bloqueo de calidad Y ya se resolvió la inspección. */
+  inspeccionCalidad: { cantidadRecibida: number; cantidadRechazada: number } | null;
 }
 
 export interface CumplimientoMetrica {
@@ -49,6 +56,7 @@ export interface ScorecardProveedor {
   leadTimePromedioDias: number | null;
   cumplimientoEntrega: CumplimientoMetrica | null;
   cumplimientoPrecio: CumplimientoMetrica | null;
+  cumplimientoCalidad: CumplimientoMetrica | null;
   /** Promedio de las métricas disponibles (0-100); null si ninguna tiene dato de referencia. */
   scoreGeneral: number | null;
 }
@@ -102,9 +110,24 @@ export function calcularScorecardProveedores(
           }
         : null;
 
-    const metricasDisponibles = [cumplimientoEntrega?.pct, cumplimientoPrecio?.pct].filter(
-      (v): v is number => v !== undefined
-    );
+    const casosConInspeccion = casosProveedor.filter((c) => c.inspeccionCalidad !== null);
+    const cumplidosCalidad = casosConInspeccion.filter(
+      (c) => c.inspeccionCalidad!.cantidadRechazada === 0
+    ).length;
+    const cumplimientoCalidad: CumplimientoMetrica | null =
+      casosConInspeccion.length > 0
+        ? {
+            pct: (cumplidosCalidad / casosConInspeccion.length) * 100,
+            cumplidos: cumplidosCalidad,
+            conDato: casosConInspeccion.length,
+          }
+        : null;
+
+    const metricasDisponibles = [
+      cumplimientoEntrega?.pct,
+      cumplimientoPrecio?.pct,
+      cumplimientoCalidad?.pct,
+    ].filter((v): v is number => v !== undefined);
     const scoreGeneral =
       metricasDisponibles.length > 0
         ? metricasDisponibles.reduce((a, b) => a + b, 0) / metricasDisponibles.length
@@ -117,6 +140,7 @@ export function calcularScorecardProveedores(
       leadTimePromedioDias,
       cumplimientoEntrega,
       cumplimientoPrecio,
+      cumplimientoCalidad,
       scoreGeneral,
     };
   }

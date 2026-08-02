@@ -509,7 +509,11 @@ export interface ScorecardProveedorConNombre extends ScorecardProveedor {
 // pasa todo resuelto a lib/scorecard-proveedores.ts, que solo agrega — la
 // resolución "convenio gana sobre declarado" vive en un solo lugar (acá).
 export async function getScorecardProveedores(): Promise<ScorecardProveedorConNombre[]> {
-  const [proveedores, convenios] = await Promise.all([getProveedores(), getConvenios()]);
+  const [proveedores, convenios, inspecciones] = await Promise.all([
+    getProveedores(),
+    getConvenios(),
+    getInspeccionesCalidad(),
+  ]);
 
   let recibidos: {
     proveedor_id: string | null;
@@ -518,6 +522,7 @@ export async function getScorecardProveedores(): Promise<ScorecardProveedorConNo
     updated_at: string;
     monto_estimado: number;
     cantidad_estimada: number | null;
+    inspeccion_calidad_id: string | null;
   }[];
   if (DEMO) {
     recibidos = store.getCasosCompra().filter((c) => c.estado === "recibido");
@@ -525,12 +530,25 @@ export async function getScorecardProveedores(): Promise<ScorecardProveedorConNo
     const supabase = await createClient();
     const { data } = await supabase
       .from("casos_compra")
-      .select("proveedor_id, material_id, created_at, updated_at, monto_estimado, cantidad_estimada")
+      .select(
+        "proveedor_id, material_id, created_at, updated_at, monto_estimado, cantidad_estimada, inspeccion_calidad_id"
+      )
       .eq("estado", "recibido")
       .order("updated_at", { ascending: false })
       .limit(LIMITE_RECIBIDOS_SCORECARD);
     recibidos = data ?? [];
   }
+
+  // Solo inspecciones ya resueltas traen cantidad_rechazada real — una
+  // pendiente todavía no dice nada sobre si el proveedor cumplió o no.
+  const inspeccionPorId = new Map(
+    inspecciones
+      .filter((i) => i.estado === "resuelta" && i.cantidad_rechazada !== null)
+      .map((i) => [
+        i.id,
+        { cantidadRecibida: i.cantidad_recibida, cantidadRechazada: i.cantidad_rechazada! },
+      ])
+  );
 
   const declaradoPorProveedor = new Map(
     proveedores.map((p) => [p.id, p.dias_entrega_declarado])
@@ -556,6 +574,9 @@ export async function getScorecardProveedores(): Promise<ScorecardProveedorConNo
         diasEntregaComprometido:
           convenio?.dias_entrega_pactado ?? declaradoPorProveedor.get(c.proveedor_id) ?? null,
         precioPactado: convenio?.precio_pactado ?? null,
+        inspeccionCalidad: c.inspeccion_calidad_id
+          ? (inspeccionPorId.get(c.inspeccion_calidad_id) ?? null)
+          : null,
       };
     });
 
@@ -572,6 +593,7 @@ export async function getScorecardProveedores(): Promise<ScorecardProveedorConNo
       leadTimePromedioDias: s?.leadTimePromedioDias ?? null,
       cumplimientoEntrega: s?.cumplimientoEntrega ?? null,
       cumplimientoPrecio: s?.cumplimientoPrecio ?? null,
+      cumplimientoCalidad: s?.cumplimientoCalidad ?? null,
       scoreGeneral: s?.scoreGeneral ?? null,
     };
   });

@@ -16,6 +16,7 @@ function caso(overrides: Partial<CasoRecibidoParaScorecard>): CasoRecibidoParaSc
     cantidadEstimada: 100,
     diasEntregaComprometido: null,
     precioPactado: null,
+    inspeccionCalidad: null,
     ...overrides,
   };
 }
@@ -75,6 +76,40 @@ describe("calcularScorecardProveedores — precio", () => {
     ];
     const r = calcularScorecardProveedores(casos);
     expect(r.p1.cumplimientoPrecio).toBeNull();
+  });
+});
+
+describe("calcularScorecardProveedores — calidad", () => {
+  it("cumple si la inspección resuelta no rechazó nada", () => {
+    const casos = [
+      caso({ inspeccionCalidad: { cantidadRecibida: 50, cantidadRechazada: 0 } }),
+    ];
+    const r = calcularScorecardProveedores(casos);
+    expect(r.p1.cumplimientoCalidad).toEqual({ pct: 100, cumplidos: 1, conDato: 1 });
+  });
+
+  it("no cumple si se rechazó algo, aunque sea parcial", () => {
+    const casos = [
+      caso({ inspeccionCalidad: { cantidadRecibida: 50, cantidadRechazada: 5 } }),
+    ];
+    const r = calcularScorecardProveedores(casos);
+    expect(r.p1.cumplimientoCalidad).toEqual({ pct: 0, cumplidos: 0, conDato: 1 });
+  });
+
+  it("casos sin inspección (material sin bloqueo de calidad) no cuentan", () => {
+    const casos = [
+      caso({ inspeccionCalidad: { cantidadRecibida: 50, cantidadRechazada: 0 } }),
+      caso({ inspeccionCalidad: null }),
+    ];
+    const r = calcularScorecardProveedores(casos);
+    expect(r.p1.cumplimientoCalidad).toEqual({ pct: 100, cumplidos: 1, conDato: 1 });
+    expect(r.p1.numPedidosRecibidos).toBe(2);
+  });
+
+  it("sin ninguna inspección resuelta en todo el proveedor, cumplimiento es null (no 100%)", () => {
+    const casos = [caso({ inspeccionCalidad: null })];
+    const r = calcularScorecardProveedores(casos);
+    expect(r.p1.cumplimientoCalidad).toBeNull();
   });
 });
 
