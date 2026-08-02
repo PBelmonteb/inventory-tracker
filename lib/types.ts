@@ -303,6 +303,10 @@ export interface CasoCompra {
   titulo: string;
   descripcion: string | null;
   monto_estimado: number;
+  // false = el monto lo puso el sistema solo (regex sobre un correo) y
+  // nadie lo ha revisado todavía — ver lib/email-caso.ts extraerMonto().
+  // true = lo escribió una persona, o viene de un convenio pactado.
+  monto_confirmado: boolean;
   // Cantidad esperada de esta orden (en la unidad del material) — null si no
   // se capturó (ver "stock por llegar" en Inventario, lib/data.ts).
   cantidad_estimada: number | null;

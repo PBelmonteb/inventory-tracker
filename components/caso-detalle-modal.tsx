@@ -8,19 +8,21 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
-import { Badge, Button } from "@/components/ui";
+import { Badge, Button, Input } from "@/components/ui";
 import { CasoTimeline } from "@/components/caso-timeline";
 import {
   elegirGanadora,
   obtenerEventosCaso,
   obtenerSolicitudConCasos,
 } from "@/lib/actions/solicitudes";
+import { actualizarMontoCaso } from "@/lib/actions/compras";
 import { formatMoney } from "@/lib/utils";
 import type {
   CasoCompraConRelaciones,
   CasoCompraEvento,
   SolicitudCompraConRelaciones,
 } from "@/lib/types";
+import { Pencil } from "lucide-react";
 
 export function CasoDetalleModal({
   open,
@@ -41,6 +43,9 @@ export function CasoDetalleModal({
     null
   );
   const [cargando, setCargando] = useState(false);
+  const [editandoMonto, setEditandoMonto] = useState<string | null>(null);
+  const [montoTexto, setMontoTexto] = useState("");
+  const [guardandoMonto, setGuardandoMonto] = useState(false);
 
   useEffect(() => {
     if (!open || !caso) {
@@ -84,6 +89,81 @@ export function CasoDetalleModal({
     router.refresh();
   }
 
+  async function guardarMonto(casoId: string) {
+    const monto = Number(montoTexto);
+    if (!Number.isFinite(monto) || monto < 0) {
+      alert("Captura un monto válido");
+      return;
+    }
+    setGuardandoMonto(true);
+    const res = await actualizarMontoCaso(casoId, monto);
+    setGuardandoMonto(false);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    setEditandoMonto(null);
+    if (solicitud) setSolicitud(await obtenerSolicitudConCasos(solicitud.id));
+    router.refresh();
+  }
+
+  // Monto + badge "Sin confirmar" cuando lo puso el sistema solo (regex
+  // sobre un correo) — con edición inline para corregirlo antes de elegir
+  // ganadora. Se usa tanto en el resumen de arriba como en cada fila de
+  // la tabla comparativa.
+  function Monto({ casoId, monto, confirmado }: { casoId: string; monto: number; confirmado: boolean }) {
+    if (editandoMonto === casoId) {
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <Input
+            autoFocus
+            type="number"
+            step="any"
+            min="0"
+            value={montoTexto}
+            onChange={(e) => setMontoTexto(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !guardandoMonto && guardarMonto(casoId)}
+            className="h-7 w-24 px-2 py-1 text-xs"
+          />
+          <Button
+            type="button"
+            className="px-2 py-1 text-xs"
+            disabled={guardandoMonto}
+            onClick={() => guardarMonto(casoId)}
+          >
+            OK
+          </Button>
+          <button
+            type="button"
+            className="cursor-pointer text-xs text-faint hover:text-fg"
+            onClick={() => setEditandoMonto(null)}
+          >
+            Cancelar
+          </button>
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {formatMoney(monto)}
+        {!confirmado && <Badge tone="warn">Sin confirmar</Badge>}
+        {esGestor && (
+          <button
+            type="button"
+            aria-label="Corregir monto"
+            className="cursor-pointer text-faint hover:text-fg"
+            onClick={() => {
+              setMontoTexto(String(monto));
+              setEditandoMonto(casoId);
+            }}
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        )}
+      </span>
+    );
+  }
+
   if (!caso) return null;
 
   return (
@@ -91,10 +171,17 @@ export function CasoDetalleModal({
       <div className="space-y-4">
         <div className="text-sm">
           <p className="font-medium text-fg">{caso.titulo}</p>
-          <p className="text-muted">
-            {caso.proveedores?.nombre ?? caso.proveedor_nombre ?? "Proveedor eliminado"}
-            {caso.materiales && <> · {caso.materiales.nombre}</>}
-            {esGestor && <> · {formatMoney(caso.monto_estimado)}</>}
+          <p className="flex flex-wrap items-center gap-1 text-muted">
+            <span>
+              {caso.proveedores?.nombre ?? caso.proveedor_nombre ?? "Proveedor eliminado"}
+              {caso.materiales && <> · {caso.materiales.nombre}</>}
+            </span>
+            {esGestor && (
+              <>
+                <span>·</span>
+                <Monto casoId={caso.id} monto={caso.monto_estimado} confirmado={caso.monto_confirmado} />
+              </>
+            )}
           </p>
         </div>
 
@@ -113,9 +200,14 @@ export function CasoDetalleModal({
                     <p className="font-medium text-fg">
                       {c.proveedores?.nombre ?? "Proveedor eliminado"}
                     </p>
-                    <p className="text-xs text-muted">
-                      {esGestor && <>{formatMoney(c.monto_estimado)} · </>}
-                      {c.estado}
+                    <p className="flex flex-wrap items-center gap-1 text-xs text-muted">
+                      {esGestor && (
+                        <>
+                          <Monto casoId={c.id} monto={c.monto_estimado} confirmado={c.monto_confirmado} />
+                          <span>·</span>
+                        </>
+                      )}
+                      <span>{c.estado}</span>
                     </p>
                   </div>
                   {c.id === solicitud.cotizacion_ganadora_id ? (

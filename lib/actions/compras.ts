@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, esGestor } from "@/lib/auth";
 import { registrarEventoCaso } from "@/lib/eventos-caso";
 import { resolverSolicitud } from "@/lib/solicitudes";
 import { formatearCorreoEvento } from "@/lib/email-caso";
@@ -110,6 +110,55 @@ export async function asignarResponsableCasoCompra(
   }
 
   revalidatePath("/proveedores");
+  return { ok: true };
+}
+
+// Corrige/confirma el monto de un caso — típicamente porque el que puso
+// el sistema solo (regex sobre un correo, ver lib/email-caso.ts) estaba
+// mal. Gestor-only: es el mismo dato que decide quién gana una
+// comparación de cotizaciones.
+export async function actualizarMontoCaso(
+  casoId: string,
+  monto: number
+): Promise<ActionResult> {
+  if (!Number.isFinite(monto) || monto < 0)
+    return { ok: false, error: "El monto no puede ser negativo" };
+
+  const yo = await getCurrentProfile();
+  if (!yo || !esGestor(yo)) return { ok: false, error: "No autorizado" };
+  const actor = { id: yo.id, nombre: yo.nombre };
+
+  if (DEMO) {
+    try {
+      store.actualizarMontoCaso(casoId, monto, actor);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("casos_compra")
+      .update({
+        monto_estimado: monto,
+        monto_confirmado: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", casoId);
+    if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCaso(
+      supabase,
+      casoId,
+      "nota",
+      // Sin el monto en el texto: el timeline no filtra notas por rol, y un
+      // operario que abre este caso no debe poder inferir el monto por aquí
+      // aunque el campo mismo esté oculto para él.
+      `Monto corregido por ${yo.nombre ?? "un gestor"}.`,
+      actor
+    );
+  }
+
+  revalidatePath("/proveedores");
+  revalidatePath("/aprobaciones");
   return { ok: true };
 }
 

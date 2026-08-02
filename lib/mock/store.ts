@@ -1331,6 +1331,7 @@ export const store = {
       titulo: string;
       descripcion: string | null;
       monto_estimado: number;
+      monto_confirmado?: boolean;
       cantidad_estimada?: number | null;
       referencia: string | null;
       origen?: OrigenCasoCompra;
@@ -1349,6 +1350,7 @@ export const store = {
     const caso: CasoCompra = {
       ...data,
       titulo: data.titulo.trim(),
+      monto_confirmado: data.monto_confirmado ?? true,
       cantidad_estimada: data.cantidad_estimada ?? null,
       origen: data.origen ?? "manual",
       id: uid(),
@@ -1382,6 +1384,40 @@ export const store = {
       store.asignarResponsableCasoCompra(caso.id, data.responsable_id);
     }
     return caso;
+  },
+
+  // El webhook de correo detectó un monto en una respuesta ligada a un
+  // caso ya existente (regex, ver lib/email-caso.ts) — se aplica solo si
+  // el caso sigue sin monto confirmado (no pisa uno que un gestor ya
+  // revisó). Queda marcado sin confirmar: el gestor lo revisa/corrige
+  // antes de elegir ganadora entre cotizaciones.
+  actualizarMontoDetectado(casoId: string, monto: number): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) return;
+    if (c.monto_estimado !== 0 && c.monto_confirmado) return;
+    c.monto_estimado = monto;
+    c.monto_confirmado = false;
+    c.updated_at = new Date().toISOString();
+  },
+
+  // Un gestor corrige/confirma el monto a mano — deja de estar "sin
+  // confirmar" pase lo que pase con el correo que lo originó.
+  actualizarMontoCaso(
+    casoId: string,
+    monto: number,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de compra no encontrado");
+    c.monto_estimado = monto;
+    c.monto_confirmado = true;
+    c.updated_at = new Date().toISOString();
+    store.registrarEventoCaso(
+      c.id,
+      "nota",
+      `Monto corregido por ${actor.nombre ?? "un gestor"}.`,
+      actor
+    );
   },
 
   cambiarEstadoCasoCompra(

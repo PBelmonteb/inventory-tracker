@@ -77,12 +77,35 @@ export function matchMaterial<T extends MaterialMatch>(
   );
 }
 
-/** Extrae el primer monto tipo `$24,600.00` del texto (0 si no hay). */
+/**
+ * Extrae el monto tipo `$24,600.00` del texto de un correo (0 si no hay).
+ * Heurística, no parseo real — una cotización suele traer varios montos
+ * (precio unitario, subtotal, envío, total), así que en vez de agarrar el
+ * primer "$" que aparece, prioriza el que está en la misma línea que
+ * "total"/"monto"/"importe" (el último de esos, por si hay un subtotal
+ * antes del total final). Sin esa pista, se queda con el monto más grande
+ * de todo el texto — más probable que sea el total que un precio unitario.
+ * Sigue siendo una adivinanza: por eso el caller marca el resultado como
+ * "sin confirmar" en vez de darlo por bueno (ver monto_confirmado).
+ */
 export function extraerMonto(texto: string): number {
-  const match = texto.match(/\$\s*([\d][\d,]*(?:\.\d{1,2})?)/);
-  if (!match) return 0;
-  const n = Number(match[1].replace(/,/g, ""));
-  return Number.isFinite(n) && n >= 0 ? n : 0;
+  const regexMonto = /\$\s*([\d][\d,]*(?:\.\d{1,2})?)/g;
+  const conPista: number[] = [];
+  const todos: number[] = [];
+
+  for (const linea of texto.split(/\r?\n/)) {
+    const tienePista = /total|monto|importe/i.test(linea);
+    for (const m of linea.matchAll(regexMonto)) {
+      const n = Number(m[1].replace(/,/g, ""));
+      if (!Number.isFinite(n) || n < 0) continue;
+      todos.push(n);
+      if (tienePista) conPista.push(n);
+    }
+  }
+
+  if (conPista.length > 0) return conPista[conPista.length - 1];
+  if (todos.length > 0) return Math.max(...todos);
+  return 0;
 }
 
 /** Recorta el cuerpo del correo para usarlo como descripción del caso. */

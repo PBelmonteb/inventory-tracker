@@ -110,6 +110,22 @@ export async function POST(req: Request) {
         SISTEMA,
         { remitenteExterno: externo, remitenteVerificado: verificado }
       );
+      // Monto detectado en la respuesta — solo si el caso todavía no
+      // tiene uno confirmado por una persona (ver extraerMonto).
+      const montoDetectado = extraerMonto(texto);
+      if (
+        montoDetectado > 0 &&
+        (casoLigado.monto_estimado === 0 || !casoLigado.monto_confirmado)
+      ) {
+        store.actualizarMontoDetectado(casoLigado.id, montoDetectado);
+        store.registrarEventoCaso(
+          casoLigado.id,
+          "nota",
+          // Sin el monto en el texto: el timeline no filtra notas por rol.
+          "Monto detectado en el correo — sin confirmar, revisa antes de elegir esta cotización.",
+          SISTEMA
+        );
+      }
       store.registrarEmailProcesado(email.mensajeId);
       revalidatePath("/proveedores");
       return NextResponse.json({
@@ -130,12 +146,14 @@ export async function POST(req: Request) {
       );
 
     const material = matchMaterial(texto, store.getMateriales());
+    const montoNuevoCaso = extraerMonto(texto);
     const caso = store.crearCasoCompra({
       proveedor_id: proveedorRemitente.id,
       material_id: material?.id ?? null,
       titulo,
       descripcion: resumirCuerpo(email.cuerpo),
-      monto_estimado: extraerMonto(texto),
+      monto_estimado: montoNuevoCaso,
+      monto_confirmado: montoNuevoCaso === 0,
       referencia: `OC-${Date.now().toString().slice(-6)}`,
       origen: "correo",
     });
@@ -186,7 +204,7 @@ export async function POST(req: Request) {
   const [{ data: casosAbiertos }, { data: proveedores }] = await Promise.all([
     supabase
       .from("casos_compra")
-      .select("id, referencia, proveedor_id")
+      .select("id, referencia, proveedor_id, monto_estimado, monto_confirmado")
       .in("estado", CASO_COMPRA_ABIERTO),
     supabase.from("proveedores").select("id,nombre,contacto"),
   ]);
@@ -212,6 +230,30 @@ export async function POST(req: Request) {
       SISTEMA,
       { remitenteExterno: externo, remitenteVerificado: verificado }
     );
+    // Monto detectado en la respuesta — solo si el caso todavía no tiene
+    // uno confirmado por una persona (ver extraerMonto).
+    const montoDetectado = extraerMonto(texto);
+    if (
+      montoDetectado > 0 &&
+      (casoLigado.monto_estimado === 0 || !casoLigado.monto_confirmado)
+    ) {
+      await supabase
+        .from("casos_compra")
+        .update({
+          monto_estimado: montoDetectado,
+          monto_confirmado: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", casoLigado.id);
+      await registrarEventoCaso(
+        supabase,
+        casoLigado.id,
+        "nota",
+        // Sin el monto en el texto: el timeline no filtra notas por rol.
+        "Monto detectado en el correo — sin confirmar, revisa antes de elegir esta cotización.",
+        SISTEMA
+      );
+    }
     revalidatePath("/proveedores");
     return NextResponse.json({
       ok: true,
@@ -235,6 +277,7 @@ export async function POST(req: Request) {
     .eq("activo", true);
 
   const material = matchMaterial(texto, materiales ?? []);
+  const montoNuevoCaso = extraerMonto(texto);
   const { data: caso, error } = await supabase
     .from("casos_compra")
     .insert({
@@ -242,7 +285,8 @@ export async function POST(req: Request) {
       material_id: material?.id ?? null,
       titulo,
       descripcion: resumirCuerpo(email.cuerpo),
-      monto_estimado: extraerMonto(texto),
+      monto_estimado: montoNuevoCaso,
+      monto_confirmado: montoNuevoCaso === 0,
       referencia: `OC-${Date.now().toString().slice(-6)}`,
       origen: "correo",
     })
