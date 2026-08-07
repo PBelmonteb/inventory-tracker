@@ -20,7 +20,7 @@ export interface UsuarioListado {
   activo: boolean;
 }
 
-const ROLES: Rol[] = ["admin", "gerente", "operario", "compras"];
+const ROLES: Rol[] = ["admin", "gerente", "operario", "compras", "ventas"];
 
 // Verifica que quien llama sea gestor. Se re-checa aquí (no solo en la UI)
 // porque las acciones de este archivo usan el cliente service_role, que

@@ -45,30 +45,39 @@ const NAV = [
     label: "Escanear",
     icon: ScanLine,
     ocultoCompras: true,
+    ocultoVentas: true,
   },
   {
     href: "/movimientos",
     label: "Movimientos",
     icon: ArrowLeftRight,
     ocultoCompras: true,
+    ocultoVentas: true,
   },
   {
     href: "/conteos",
     label: "Conteos",
     icon: ClipboardList,
     ocultoCompras: true,
+    ocultoVentas: true,
   },
-  { href: "/traslados", label: "Traslados", icon: Route, ocultoCompras: true },
+  {
+    href: "/traslados",
+    label: "Traslados",
+    icon: Route,
+    ocultoCompras: true,
+    ocultoVentas: true,
+  },
   {
     href: "/produccion",
     label: "Producción",
     icon: Factory,
     ocultoCompras: true,
+    ocultoVentas: true,
   },
-  { href: "/proveedores", label: "Proveedores", icon: Truck },
-  // Oculto para operario mientras no exista el rol "ventas" (ver
-  // app/(app)/clientes/page.tsx para el bloqueo del lado servidor). También
-  // oculto para compras — clientes/ventas no es su función.
+  { href: "/proveedores", label: "Proveedores", icon: Truck, ocultoVentas: true },
+  // Oculto para operario (no maneja el Portal de Clientes) y para compras
+  // (clientes/ventas no es su función) — visible para gestor y ventas.
   {
     href: "/clientes",
     label: "Clientes",
@@ -106,7 +115,8 @@ export function AppShell({
       (!i.gestor || esGestor) &&
       (!i.gestorOCompras || puedeGestionarCompras) &&
       !(i.ocultoOperario && profile.rol === "operario") &&
-      !(i.ocultoCompras && profile.rol === "compras")
+      !(i.ocultoCompras && profile.rol === "compras") &&
+      !(i.ocultoVentas && profile.rol === "ventas")
   );
 
   async function signOut() {

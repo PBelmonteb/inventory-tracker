@@ -8,6 +8,7 @@ const ROL_LABEL: Record<UsuarioAsignable["rol"], string> = {
   gerente: "Gerente",
   operario: "Operario",
   compras: "Compras",
+  ventas: "Ventas",
 };
 
 // Selector de responsable reusado en casos de compra/venta y salidas

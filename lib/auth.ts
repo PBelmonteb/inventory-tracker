@@ -41,3 +41,9 @@ export function esGestor(profile: Profile | null): boolean {
 export function puedeGestionarCompras(profile: Profile | null): boolean {
   return esGestor(profile) || profile?.rol === "compras";
 }
+
+/** True si el perfil puede gestionar el Portal de Clientes (casos de
+ *  venta, salidas pendientes, catálogo de clientes) — gestor o ventas. */
+export function puedeGestionarVentas(profile: Profile | null): boolean {
+  return esGestor(profile) || profile?.rol === "ventas";
+}

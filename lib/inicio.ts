@@ -143,3 +143,36 @@ export async function getInicioCompras(): Promise<InicioCompras> {
     notificaciones: notificaciones.slice(0, LIMITE_LISTA),
   };
 }
+
+// Igual espíritu que InicioCompras pero del lado de ventas: casos de venta
+// activos y salidas pendientes por confirmar — nada de compras/inventario.
+export interface InicioVentas {
+  kpis: {
+    casosActivos: number;
+    salidasPorConfirmar: number;
+  };
+  casosActivos: CasoVentaConRelaciones[];
+  salidasPendientes: SalidaPendienteConRelaciones[];
+  notificaciones: NotificacionConRelaciones[];
+}
+
+export async function getInicioVentas(): Promise<InicioVentas> {
+  const [casosVenta, salidas, notificaciones] = await Promise.all([
+    getCasosVenta(),
+    getSalidasPendientes(),
+    getNotificaciones(),
+  ]);
+
+  const casosActivos = casosVenta.filter((c) => ABIERTO_VENTA.includes(c.estado));
+  const salidasPendientes = salidas.filter((s) => s.estado === "pendiente");
+
+  return {
+    kpis: {
+      casosActivos: casosActivos.length,
+      salidasPorConfirmar: salidasPendientes.length,
+    },
+    casosActivos: casosActivos.slice(0, LIMITE_LISTA),
+    salidasPendientes: salidasPendientes.slice(0, LIMITE_LISTA),
+    notificaciones: notificaciones.slice(0, LIMITE_LISTA),
+  };
+}
