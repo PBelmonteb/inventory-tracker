@@ -21,6 +21,9 @@ import type {
   ConteoConItems,
   ConteoItem,
   Convenio,
+  ConvenioCliente,
+  ConvenioClienteConRelaciones,
+  DevolucionVenta,
   ConvenioConRelaciones,
   EstadoCasoCompra,
   EstadoCasoVenta,
@@ -57,6 +60,7 @@ import { calcularStockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ } from "@/lib/eoq";
 import { evaluarRiesgoStock, type RiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
+import { esConvenioClienteVigente } from "@/lib/convenios-clientes";
 import { validarResolucionInspeccion } from "@/lib/inspeccion-calidad";
 import {
   construirCorreoOrdenConvenio,
@@ -93,6 +97,10 @@ interface DB {
   bom_items: BomItem[];
   // Precio pactado + condiciones por par proveedor+material.
   convenios: Convenio[];
+  // Precio pactado + condiciones por par cliente+material.
+  convenios_cliente: ConvenioCliente[];
+  // Reversas parciales/totales de casos_venta ya entregados.
+  devoluciones_venta: DevolucionVenta[];
   // Agrupa varias cotizaciones (una por proveedor) de la misma necesidad.
   solicitudes_compra: SolicitudCompra[];
   // Timeline por caso (estilo Salesforce).
@@ -208,6 +216,10 @@ if (!g.__inventarioDemoDB) {
   }
   // Convenios con proveedores (feature posterior).
   if (!viejo.convenios) viejo.convenios = [];
+  // Convenios con clientes (feature posterior).
+  if (!viejo.convenios_cliente) viejo.convenios_cliente = [];
+  // Devoluciones de venta (feature posterior).
+  if (!viejo.devoluciones_venta) viejo.devoluciones_venta = [];
   // Solicitudes de compra + timeline (feature posterior).
   if (!viejo.solicitudes_compra) viejo.solicitudes_compra = [];
   if (!viejo.casos_compra_eventos) viejo.casos_compra_eventos = [];
@@ -1965,6 +1977,119 @@ export const store = {
     c.updated_at = new Date().toISOString();
   },
 
+  /* ---------------- Convenios con clientes ---------------- */
+
+  getConveniosClientes(): ConvenioClienteConRelaciones[] {
+    return [...db.convenios_cliente]
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .map((c) => {
+        const cl = db.clientes.find((x) => x.id === c.cliente_id);
+        const m = db.materiales.find((x) => x.id === c.material_id);
+        return {
+          ...c,
+          clientes: cl ? { id: cl.id, nombre: cl.nombre } : null,
+          materiales: m
+            ? { id: m.id, nombre: m.nombre, sku: m.sku, unidad: m.unidad }
+            : null,
+        };
+      });
+  },
+
+  obtenerConvenioClienteVigente(materialId: string, clienteId: string): ConvenioCliente | null {
+    const c = db.convenios_cliente.find(
+      (x) =>
+        x.material_id === materialId &&
+        x.cliente_id === clienteId &&
+        esConvenioClienteVigente(x)
+    );
+    return c ?? null;
+  },
+
+  crearConvenioCliente(
+    datos: Omit<ConvenioCliente, "id" | "activo" | "created_at" | "updated_at">
+  ): ConvenioCliente {
+    const yaExiste = db.convenios_cliente.some(
+      (c) =>
+        c.cliente_id === datos.cliente_id &&
+        c.material_id === datos.material_id &&
+        c.activo
+    );
+    if (yaExiste)
+      throw new Error(
+        "Ya existe un convenio activo para este cliente y material. Desactívalo primero para crear uno nuevo."
+      );
+
+    const now = new Date().toISOString();
+    const convenio: ConvenioCliente = {
+      ...datos,
+      id: uid(),
+      activo: true,
+      created_at: now,
+      updated_at: now,
+    };
+    db.convenios_cliente.push(convenio);
+
+    const m = db.materiales.find((x) => x.id === datos.material_id);
+    db.historial_precios.push({
+      id: uid(),
+      material_id: datos.material_id,
+      material_nombre: m?.nombre ?? null,
+      material_sku: m?.sku ?? null,
+      tipo: "venta",
+      valor: datos.precio_pactado,
+      fuente: "convenio",
+      proveedor_id: null,
+      cantidad: datos.cantidad_minima,
+      created_at: now,
+    });
+    return convenio;
+  },
+
+  actualizarConvenioCliente(
+    id: string,
+    datos: Omit<ConvenioCliente, "id" | "activo" | "created_at" | "updated_at">
+  ): void {
+    const c = db.convenios_cliente.find((x) => x.id === id);
+    if (!c) throw new Error("Convenio no encontrado");
+    const yaExiste = db.convenios_cliente.some(
+      (x) =>
+        x.id !== id &&
+        x.cliente_id === datos.cliente_id &&
+        x.material_id === datos.material_id &&
+        x.activo
+    );
+    if (yaExiste)
+      throw new Error(
+        "Ya existe otro convenio activo para este cliente y material."
+      );
+
+    const precioAnterior = c.precio_pactado;
+    Object.assign(c, datos, { updated_at: new Date().toISOString() });
+
+    if (datos.precio_pactado !== precioAnterior) {
+      const m = db.materiales.find((x) => x.id === datos.material_id);
+      db.historial_precios.push({
+        id: uid(),
+        material_id: datos.material_id,
+        material_nombre: m?.nombre ?? null,
+        material_sku: m?.sku ?? null,
+        tipo: "venta",
+        valor: datos.precio_pactado,
+        fuente: "convenio",
+        proveedor_id: null,
+        cantidad: datos.cantidad_minima,
+        created_at: new Date().toISOString(),
+      });
+    }
+  },
+
+  desactivarConvenioCliente(id: string): void {
+    const c = db.convenios_cliente.find((x) => x.id === id);
+    if (!c) throw new Error("Convenio no encontrado");
+    c.activo = false;
+    c.updated_at = new Date().toISOString();
+  },
+
   /* ---------------- Timeline de casos (estilo Salesforce) ---------------- */
 
   // Un solo punto de inserción reusado desde cualquier acción que toque
@@ -2027,6 +2152,70 @@ export const store = {
     if (!db.casos_venta.some((c) => c.id === casoId))
       throw new Error("Caso de venta no encontrado");
     store.registrarEventoCasoVenta(casoId, "nota", texto.trim(), actor);
+  },
+
+  getDevolucionesCasoVenta(casoId: string): DevolucionVenta[] {
+    return db.devoluciones_venta
+      .filter((d) => d.caso_venta_id === casoId)
+      .sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+  },
+
+  // Todas las devoluciones, sin filtrar — usada por el scorecard de
+  // clientes para saber qué casos tuvieron al menos una.
+  getTodasDevolucionesVenta(): DevolucionVenta[] {
+    return [...db.devoluciones_venta];
+  },
+
+  // Reversa parcial/total de un caso entregado — mismo patrón que
+  // cancelarTraslado: entrada compensatoria sin costo (no toca WAC), nunca
+  // muta el movimiento de salida original. Regresa el nombre del material
+  // (para el mensaje del timeline, que vive en lib/actions/ventas.ts).
+  registrarDevolucionVenta(
+    casoId: string,
+    materialId: string,
+    cantidad: number,
+    motivo: string | undefined,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): string {
+    const cv = db.casos_venta.find((c) => c.id === casoId);
+    if (!cv) throw new Error("Caso no encontrado");
+    if (cv.estado !== "entregado")
+      throw new Error("Solo se pueden devolver casos entregados");
+
+    const totalEntregado = db.movimientos
+      .filter(
+        (m) =>
+          m.tipo === "salida" &&
+          m.material_id === materialId &&
+          m.referencia === cv.referencia
+      )
+      .reduce((sum, m) => sum + m.cantidad, 0);
+    const totalDevuelto = db.devoluciones_venta
+      .filter((d) => d.caso_venta_id === casoId && d.material_id === materialId)
+      .reduce((sum, d) => sum + d.cantidad, 0);
+    const disponible = totalEntregado - totalDevuelto;
+    if (cantidad > disponible)
+      throw new Error(`No puede devolver más de lo entregado (disponible para devolver: ${disponible})`);
+
+    const mov = store.aplicarMovimiento(materialId, "entrada", cantidad, {
+      nota: `Devolución: ${motivo ?? "sin motivo"}`,
+      referencia: cv.referencia,
+    });
+
+    const m = db.materiales.find((x) => x.id === materialId);
+    db.devoluciones_venta.push({
+      id: uid(),
+      caso_venta_id: casoId,
+      material_id: materialId,
+      material_nombre: m?.nombre ?? null,
+      cantidad,
+      motivo: motivo ?? null,
+      movimiento_id: mov.id,
+      creado_por_id: actor.id,
+      creado_por_nombre: actor.nombre,
+      created_at: new Date().toISOString(),
+    });
+    return m?.nombre ?? "material";
   },
 
   /* ---------------- Solicitudes de compra (comparar proveedores) ---------------- */

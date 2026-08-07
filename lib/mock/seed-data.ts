@@ -10,6 +10,8 @@ import type {
   Conteo,
   ConteoItem,
   Convenio,
+  ConvenioCliente,
+  DevolucionVenta,
   CasoCompraEvento,
   CasoVentaEvento,
   HistorialPrecio,
@@ -74,6 +76,8 @@ export function makeSeed(): {
   }[];
   bom_items: BomItem[];
   convenios: Convenio[];
+  convenios_cliente: ConvenioCliente[];
+  devoluciones_venta: DevolucionVenta[];
   solicitudes_compra: SolicitudCompra[];
   casos_compra_eventos: CasoCompraEvento[];
   casos_venta_eventos: CasoVentaEvento[];
@@ -638,6 +642,8 @@ export function makeSeed(): {
     material_stock_ubicacion: [],
     bom_items: [],
     convenios,
+    convenios_cliente: [],
+    devoluciones_venta: [],
     solicitudes_compra,
     casos_compra_eventos,
     casos_venta_eventos: [],

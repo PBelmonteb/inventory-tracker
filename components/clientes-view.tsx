@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { CasoVentaForm } from "@/components/caso-venta-form";
 import { CasoVentaDetalleModal } from "@/components/caso-venta-detalle-modal";
+import { ConveniosClienteView } from "@/components/convenios-cliente-view";
+import { ScorecardClientesView } from "@/components/scorecard-clientes-view";
 import { ResponsableSelect } from "@/components/responsable-select";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
@@ -19,9 +21,11 @@ import {
 import { crearCatalogo, eliminarCatalogo } from "@/lib/actions/catalogos";
 import { formatMoney, formatQty } from "@/lib/utils";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
+import type { ScorecardClienteConNombre } from "@/lib/data";
 import type {
   CasoVentaConRelaciones,
   Cliente,
+  ConvenioClienteConRelaciones,
   EstadoCasoVenta,
   SalidaPendienteConRelaciones,
 } from "@/lib/types";
@@ -48,6 +52,8 @@ const ESTADO_VENTA_META: Record<
 
 const ACTIVOS: EstadoCasoVenta[] = ["cotizacion", "confirmado", "en_produccion"];
 
+type TabId = "casos" | "convenios" | "scorecard";
+
 export function ClientesView({
   clientes,
   casos,
@@ -55,6 +61,10 @@ export function ClientesView({
   materiales,
   usuarios,
   verTodos,
+  convenios,
+  scorecardClientes,
+  puedeGestionarVentas,
+  tabInicial,
 }: {
   clientes: Cliente[];
   casos: CasoVentaConRelaciones[];
@@ -64,8 +74,14 @@ export function ClientesView({
   // Por defecto la lista solo trae casos abiertos + cerrados de los
   // últimos ~90 días (lib/data.ts) — este toggle pide todo el histórico.
   verTodos: boolean;
+  // Tabs "Convenios"/"Scorecard" — igual que Proveedores, gestor u ventas.
+  convenios: ConvenioClienteConRelaciones[];
+  scorecardClientes: ScorecardClienteConNombre[];
+  puedeGestionarVentas: boolean;
+  tabInicial?: TabId;
 }) {
   const router = useRouter();
+  const [tab, setTab] = useState<TabId>(tabInicial ?? "casos");
   const [formAbierto, setFormAbierto] = useState(false);
   const [filtroCliente, setFiltroCliente] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
@@ -304,6 +320,53 @@ export function ClientesView({
         )}
       </Card>
 
+      {/* Pestañas */}
+      {puedeGestionarVentas && (
+        <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-surface p-1">
+          {(
+            [
+              { id: "casos" as const, label: "Casos de venta", count: casos.length },
+              { id: "convenios" as const, label: "Convenios", count: convenios.length },
+              {
+                id: "scorecard" as const,
+                label: "Scorecard",
+                count: scorecardClientes.length,
+              },
+            ]
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={
+                "flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors " +
+                (tab === t.id ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-2 hover:text-fg")
+              }
+            >
+              {t.label}
+              <span
+                className={
+                  "rounded-full px-1.5 py-0.5 text-[11px] font-semibold " +
+                  (tab === t.id ? "bg-accent-fg/20" : "bg-surface-2 text-faint")
+                }
+              >
+                {t.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === "convenios" && puedeGestionarVentas && (
+        <ConveniosClienteView convenios={convenios} clientes={clientes} materiales={materiales} />
+      )}
+
+      {tab === "scorecard" && puedeGestionarVentas && (
+        <ScorecardClientesView clientes={scorecardClientes} />
+      )}
+
+      {tab === "casos" && (
+        <>
       {/* Casos de venta */}
       <Card className="mb-6 p-4 md:p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -455,6 +518,8 @@ export function ClientesView({
           onSelectCliente={(id) => setFiltroCliente(id)}
         />
       </div>
+        </>
+      )}
 
       <CasoVentaForm
         open={formAbierto}
@@ -467,6 +532,7 @@ export function ClientesView({
         open={!!detalleCaso}
         onClose={() => setDetalleCaso(null)}
         caso={detalleCaso}
+        puedeGestionarVentas={puedeGestionarVentas}
       />
     </div>
   );

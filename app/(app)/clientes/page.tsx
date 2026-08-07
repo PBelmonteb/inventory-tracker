@@ -1,35 +1,41 @@
 import { redirect } from "next/navigation";
 import { ClientesView } from "@/components/clientes-view";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, puedeGestionarVentas } from "@/lib/auth";
 import { listarUsuariosParaAsignar } from "@/lib/actions/usuarios";
 import {
   getCasosVenta,
   getClientes,
+  getConveniosClientes,
   getMateriales,
   getSalidasPendientes,
+  getScorecardClientes,
 } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
+const TABS = ["casos", "convenios", "scorecard"] as const;
+
 export default async function ClientesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ todos?: string }>;
+  searchParams: Promise<{ todos?: string; tab?: string }>;
 }) {
-  const { todos } = await searchParams;
+  const { todos, tab } = await searchParams;
   const verTodos = todos === "1";
-  // Mientras no exista el rol "ventas" (pendiente, sesión aparte), el
-  // operario no maneja el Portal de Clientes.
   const profile = await getCurrentProfile();
-  if (profile?.rol === "operario") redirect("/inventario");
-  const [clientes, casos, salidasPendientes, materiales, usuariosRes] =
+  if (!profile || !puedeGestionarVentas(profile)) redirect("/inventario");
+  const [clientes, casos, salidasPendientes, materiales, convenios, scorecardClientes, usuariosRes] =
     await Promise.all([
       getClientes(),
       getCasosVenta({ todos: verTodos }),
       getSalidasPendientes({ todos: verTodos }),
       getMateriales(),
+      getConveniosClientes(),
+      getScorecardClientes(),
       listarUsuariosParaAsignar(),
     ]);
+
+  const tabInicial = TABS.find((t) => t === tab) ?? "casos";
 
   const opciones = materiales.map((m) => ({
     id: m.id,
@@ -45,8 +51,12 @@ export default async function ClientesPage({
       casos={casos}
       salidasPendientes={salidasPendientes}
       materiales={opciones}
+      convenios={convenios}
+      scorecardClientes={scorecardClientes}
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
       verTodos={verTodos}
+      puedeGestionarVentas={puedeGestionarVentas(profile)}
+      tabInicial={tabInicial}
     />
   );
 }

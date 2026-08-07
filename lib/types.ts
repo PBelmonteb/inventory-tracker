@@ -199,6 +199,29 @@ export interface ConvenioConRelaciones extends Convenio {
   materiales: Pick<Material, "id" | "nombre" | "sku" | "unidad"> | null;
 }
 
+// Precio pactado + condiciones negociadas para un par cliente+material —
+// mirror de Convenio del lado de venta. Sin dias_entrega_pactado/auto_enviar
+// (no aplican a una venta) — ver [[convenios-clientes]] en la memoria del
+// proyecto.
+export interface ConvenioCliente {
+  id: string;
+  cliente_id: string;
+  material_id: string;
+  precio_pactado: number;
+  cantidad_minima: number | null;
+  condiciones_pago: string | null;
+  vigencia_hasta: string | null;
+  notas: string | null;
+  activo: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConvenioClienteConRelaciones extends ConvenioCliente {
+  clientes: Pick<Cliente, "id" | "nombre"> | null;
+  materiales: Pick<Material, "id" | "nombre" | "sku" | "unidad"> | null;
+}
+
 export interface MovimientoConRelaciones extends Movimiento {
   materiales: Pick<Material, "id" | "nombre" | "sku" | "unidad"> | null;
   profiles: Pick<Profile, "id" | "nombre"> | null;
@@ -549,6 +572,22 @@ export interface SalidaPendienteConRelaciones extends SalidaPendiente {
         cliente_nombre: string | null;
       })
     | null;
+}
+
+// Reversa parcial o total de un caso_venta ya entregado — inserta una
+// "entrada" compensatoria (sin costo_unitario, no toca WAC) en vez de
+// mutar/borrar el movimiento original. Ver migración 0042.
+export interface DevolucionVenta {
+  id: string;
+  caso_venta_id: string;
+  material_id: string | null;
+  material_nombre: string | null;
+  cantidad: number;
+  motivo: string | null;
+  movimiento_id: string | null;
+  creado_por_id: string | null;
+  creado_por_nombre: string | null;
+  created_at: string;
 }
 
 /* ---------------- Conteo cíclico (physical inventory a ciegas) ---------------- */

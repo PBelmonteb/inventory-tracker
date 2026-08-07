@@ -10,6 +10,11 @@ import {
   type CasoRecibidoParaScorecard,
   type ScorecardProveedor,
 } from "@/lib/scorecard-proveedores";
+import {
+  calcularScorecardClientes,
+  type CasoVentaParaScorecard,
+  type ScorecardCliente,
+} from "@/lib/scorecard-clientes";
 import { correrMRP, type BomEdge, type MaterialParaMRP, type RequerimientoMRP } from "@/lib/mrp";
 import { nivelStock, normalizarTexto } from "@/lib/utils";
 import type {
@@ -25,6 +30,8 @@ import type {
   Conteo,
   ConteoConItems,
   ConvenioConRelaciones,
+  ConvenioClienteConRelaciones,
+  DevolucionVenta,
   HistorialPrecio,
   InspeccionCalidad,
   MaterialConRelaciones,
@@ -943,6 +950,16 @@ export async function getConvenios(): Promise<ConvenioConRelaciones[]> {
   return (data as ConvenioConRelaciones[]) ?? [];
 }
 
+export async function getConveniosClientes(): Promise<ConvenioClienteConRelaciones[]> {
+  if (DEMO) return store.getConveniosClientes();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("convenios_cliente")
+    .select("*, clientes(id,nombre), materiales(id,nombre,sku,unidad)")
+    .order("created_at", { ascending: false });
+  return (data as ConvenioClienteConRelaciones[]) ?? [];
+}
+
 // Solicitud de compra + sus cotizaciones (una por proveedor) para el modal
 // de comparación — components/caso-detalle-modal.tsx.
 export async function getSolicitudConCasos(
@@ -1055,6 +1072,75 @@ export async function getEventosCasoVenta(
     .eq("caso_venta_id", casoId)
     .order("created_at", { ascending: true });
   return (data as CasoVentaEvento[]) ?? [];
+}
+
+export async function getDevolucionesCasoVenta(
+  casoId: string
+): Promise<DevolucionVenta[]> {
+  if (DEMO) return store.getDevolucionesCasoVenta(casoId);
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("devoluciones_venta")
+    .select("*")
+    .eq("caso_venta_id", casoId)
+    .order("created_at", { ascending: true });
+  return (data as DevolucionVenta[]) ?? [];
+}
+
+export interface ScorecardClienteConNombre extends ScorecardCliente {
+  nombre: string;
+}
+
+// Junta casos de venta (todos, para poder medir cancelación real) +
+// devoluciones + costo actual de materiales (WAC) y le pasa todo resuelto
+// a lib/scorecard-clientes.ts, que solo agrega — mismo split que
+// getScorecardProveedores (resolución acá, cálculo puro allá).
+export async function getScorecardClientes(): Promise<ScorecardClienteConNombre[]> {
+  const [clientes, casos, materiales, devolucionesTodas] = await Promise.all([
+    getClientes(),
+    getCasosVenta({ todos: true }),
+    getMateriales(),
+    DEMO
+      ? Promise.resolve(store.getTodasDevolucionesVenta())
+      : (async () => {
+          const supabase = await createClient();
+          const { data } = await supabase.from("devoluciones_venta").select("caso_venta_id");
+          return (data as { caso_venta_id: string }[]) ?? [];
+        })(),
+  ]);
+
+  const costoPorMaterial = new Map(materiales.map((m) => [m.id, m.costo_unitario]));
+  const casosConDevolucion = new Set(devolucionesTodas.map((d) => d.caso_venta_id));
+
+  const casosParaScorecard: CasoVentaParaScorecard[] = casos
+    .filter((c): c is typeof c & { cliente_id: string } => c.cliente_id !== null)
+    .map((c) => ({
+      clienteId: c.cliente_id,
+      cancelado: c.estado === "cancelado",
+      entregado: c.estado === "entregado",
+      monto: c.monto,
+      costoEstimado: c.items.reduce(
+        (sum, it) => sum + it.cantidad * (costoPorMaterial.get(it.material_id) ?? 0),
+        0
+      ),
+      tuvoDevolucion: casosConDevolucion.has(c.id),
+    }));
+
+  const scorePorCliente = calcularScorecardClientes(casosParaScorecard);
+
+  return clientes.map((cl) => {
+    const s = scorePorCliente[cl.id];
+    return {
+      clienteId: cl.id,
+      nombre: cl.nombre,
+      numCasos: s?.numCasos ?? 0,
+      valorTotalVendido: s?.valorTotalVendido ?? 0,
+      ticketPromedio: s?.ticketPromedio ?? null,
+      tasaCancelacion: s?.tasaCancelacion ?? null,
+      tasaDevolucion: s?.tasaDevolucion ?? null,
+      margenEstimado: s?.margenEstimado ?? null,
+    };
+  });
 }
 
 export async function getSalidasPendientes(

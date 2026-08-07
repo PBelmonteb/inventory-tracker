@@ -5,17 +5,26 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile } from "@/lib/auth";
+import { getCurrentProfile, puedeGestionarVentas } from "@/lib/auth";
 import { registrarEventoCasoVenta } from "@/lib/eventos-caso";
-import { getEventosCasoVenta } from "@/lib/data";
+import { getEventosCasoVenta, getDevolucionesCasoVenta } from "@/lib/data";
 import {
   ESTADOS_CASO_VENTA,
   type CasoVentaEvento,
+  type DevolucionVenta,
   type EstadoCasoVenta,
   type UsuarioActor,
 } from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+
+// Gestionar el Portal de Clientes (crear/editar casos de venta, confirmar
+// o cancelar salidas) es tarea de gestor o ventas — operario no tiene
+// acceso a /clientes (ver app/(app)/clientes/page.tsx).
+async function requireGestorOVentas() {
+  const profile = await getCurrentProfile();
+  if (!profile || !puedeGestionarVentas(profile)) throw new Error("No autorizado");
+}
 
 type ItemVenta = { material_id: string; cantidad: number };
 
@@ -40,6 +49,12 @@ function parseItems(raw: string): ItemVenta[] | null {
 export async function crearCasoVenta(
   formData: FormData
 ): Promise<ActionResult> {
+  try {
+    await requireGestorOVentas();
+  } catch {
+    return { ok: false, error: "No autorizado" };
+  }
+
   const cliente_id = String(formData.get("cliente_id") ?? "");
   const titulo = String(formData.get("titulo") ?? "").trim();
   const descripcion = String(formData.get("descripcion") ?? "").trim() || null;
@@ -105,13 +120,13 @@ export async function crearCasoVenta(
   return { ok: true };
 }
 
-// Asigna (o quita) el responsable de un caso de venta. Sin gate de rol.
+// Asigna (o quita) el responsable de un caso de venta.
 export async function asignarResponsableCasoVenta(
   casoId: string,
   usuarioId: string
 ): Promise<ActionResult> {
   const yo = await getCurrentProfile();
-  if (!yo) return { ok: false, error: "No autenticado" };
+  if (!yo || !puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo.id, nombre: yo.nombre };
   const detalleEvento = usuarioId ? "Responsable asignado" : "Responsable removido";
 
@@ -144,7 +159,7 @@ export async function asignarResponsableSalidaPendiente(
   usuarioId: string
 ): Promise<ActionResult> {
   const yo = await getCurrentProfile();
-  if (!yo) return { ok: false, error: "No autenticado" };
+  if (!yo || !puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
 
   if (DEMO) {
     try {
@@ -172,6 +187,7 @@ export async function cambiarEstadoCasoVenta(
   if (!ESTADOS_CASO_VENTA.includes(estado))
     return { ok: false, error: "Estado inválido" };
   const yo = await getCurrentProfile();
+  if (!puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
@@ -218,6 +234,7 @@ export async function confirmarSalidaPendiente(
   if (cantidad !== undefined && (!Number.isFinite(cantidad) || cantidad <= 0))
     return { ok: false, error: "La cantidad debe ser mayor a cero" };
   const yo = await getCurrentProfile();
+  if (!puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
@@ -266,6 +283,7 @@ export async function cancelarSalidaPendiente(
   id: string
 ): Promise<ActionResult> {
   const yo = await getCurrentProfile();
+  if (!puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
@@ -321,6 +339,7 @@ export async function agregarNotaCasoVenta(
   if (!texto.trim()) return { ok: false, error: "La nota no puede estar vacía" };
 
   const yo = await getCurrentProfile();
+  if (!puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
   if (DEMO) {
@@ -335,5 +354,65 @@ export async function agregarNotaCasoVenta(
   }
 
   revalidatePath("/clientes");
+  return { ok: true };
+}
+
+// Lectura de solo lectura, sin gate de rol — mismo criterio que
+// obtenerEventosCasoVenta.
+export async function obtenerDevolucionesCasoVenta(
+  casoId: string
+): Promise<DevolucionVenta[]> {
+  return getDevolucionesCasoVenta(casoId);
+}
+
+// Reversa parcial o total de un caso entregado — inserta una "entrada"
+// compensatoria (sin costo_unitario, no toca WAC) en vez de mutar/borrar
+// el movimiento de salida original. Ver migración 0042.
+export async function registrarDevolucionVenta(
+  casoId: string,
+  materialId: string,
+  cantidad: number,
+  motivo?: string
+): Promise<ActionResult> {
+  if (!Number.isFinite(cantidad) || cantidad <= 0)
+    return { ok: false, error: "La cantidad debe ser mayor a cero" };
+  const yo = await getCurrentProfile();
+  if (!puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  let materialNombre = "";
+  if (DEMO) {
+    try {
+      materialNombre = store.registrarDevolucionVenta(casoId, materialId, cantidad, motivo, actor);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const { data: material } = await supabase
+      .from("materiales")
+      .select("nombre")
+      .eq("id", materialId)
+      .single();
+    materialNombre = material?.nombre ?? "material";
+    const { error } = await supabase.rpc("registrar_devolucion_venta", {
+      p_caso: casoId,
+      p_material: materialId,
+      p_cantidad: cantidad,
+      p_motivo: motivo ?? null,
+    });
+    if (error) return { ok: false, error: mensajeSupabase(error) };
+    await registrarEventoCasoVenta(
+      supabase,
+      casoId,
+      "estado_cambiado",
+      `Devolución registrada: ${cantidad} de ${materialNombre}${motivo ? ` (${motivo})` : ""}.`,
+      actor
+    );
+  }
+
+  revalidatePath("/clientes");
+  revalidatePath("/inventario");
+  revalidatePath("/movimientos");
   return { ok: true };
 }
