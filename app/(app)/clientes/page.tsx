@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ClientesView } from "@/components/clientes-view";
-import { getCurrentProfile, puedeGestionarVentas } from "@/lib/auth";
+import { getCurrentProfile, puedeCrearCasoVenta, puedeGestionarVentas } from "@/lib/auth";
 import { listarUsuariosParaAsignar } from "@/lib/actions/usuarios";
 import {
   getCasosVenta,
@@ -23,7 +23,11 @@ export default async function ClientesPage({
   const { todos, tab } = await searchParams;
   const verTodos = todos === "1";
   const profile = await getCurrentProfile();
-  if (!profile || !puedeGestionarVentas(profile)) redirect("/inventario");
+  // Operario también puede entrar, pero solo para crear una cotización sin
+  // autoridad para confirmarla (ver puedeCrearCasoVenta) — el resto de
+  // roles ajenos a ventas (p. ej. compras) sigue bloqueado.
+  if (!profile || (!puedeGestionarVentas(profile) && profile.rol !== "operario"))
+    redirect("/inventario");
   const [clientes, casos, salidasPendientes, materiales, convenios, scorecardClientes, usuariosRes] =
     await Promise.all([
       getClientes(),
@@ -56,6 +60,8 @@ export default async function ClientesPage({
       usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
       verTodos={verTodos}
       puedeGestionarVentas={puedeGestionarVentas(profile)}
+      puedeCrearCasoVenta={puedeCrearCasoVenta(profile)}
+      profileId={profile.id}
       tabInicial={tabInicial}
     />
   );

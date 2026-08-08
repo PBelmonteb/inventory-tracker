@@ -340,7 +340,7 @@ function notificarAsignacion(
 function notificarAutorizacion(
   usuario_id: string,
   mensaje: string,
-  caso_compra_id: string
+  refs: { caso_compra_id?: string | null; caso_venta_id?: string | null }
 ): void {
   db.notificaciones.push({
     id: uid(),
@@ -351,12 +351,26 @@ function notificarAutorizacion(
     nivel: null,
     tipo: "autorizacion",
     usuario_id,
-    caso_compra_id,
-    caso_venta_id: null,
+    caso_compra_id: refs.caso_compra_id ?? null,
+    caso_venta_id: refs.caso_venta_id ?? null,
     salida_pendiente_id: null,
     created_at: new Date().toISOString(),
     resuelta_at: null,
   });
+}
+
+// Espejo del trigger recalcular_monto_caso_venta (migración
+// 0045_precio_linea_venta.sql): casos_venta.monto ya no se captura a
+// mano, siempre es Σ(precio_unitario × cantidad) de sus items. Se llama
+// después de cualquier cambio a casos_venta_items (crear, editar y
+// reenviar, autorizar).
+function recalcularMontoCasoVenta(casoId: string): void {
+  const c = db.casos_venta.find((x) => x.id === casoId);
+  if (!c) return;
+  c.monto = db.casos_venta_items
+    .filter((i) => i.caso_venta_id === casoId)
+    .reduce((sum, i) => sum + i.cantidad * i.precio_unitario, 0);
+  c.updated_at = new Date().toISOString();
 }
 
 /* ---------------- Joins ---------------- */
@@ -2468,7 +2482,7 @@ export const store = {
       notificarAutorizacion(
         c.creado_por_id,
         `${actor.nombre ?? "Un gestor"} autorizó tu caso de compra "${c.titulo}".`,
-        casoId
+        { caso_compra_id: casoId }
       );
     }
   },
@@ -2498,7 +2512,7 @@ export const store = {
       const mensaje = motivo
         ? `${actor.nombre ?? "Un gestor"} rechazó tu caso de compra "${c.titulo}": ${motivo}`
         : `${actor.nombre ?? "Un gestor"} rechazó tu caso de compra "${c.titulo}".`;
-      notificarAutorizacion(c.creado_por_id, mensaje, casoId);
+      notificarAutorizacion(c.creado_por_id, mensaje, { caso_compra_id: casoId });
     }
   },
 
@@ -2605,11 +2619,16 @@ export const store = {
       cliente_id: string;
       titulo: string;
       descripcion: string | null;
-      monto: number;
       referencia: string | null;
       responsable_id?: string | null;
+      // "por_autorizar" cuando lo crea operario (ver crearCasoVenta en
+      // lib/actions/ventas.ts) — default "cotizacion" para no romper otras
+      // llamadas (p. ej. la del seed de DEMO).
+      estado?: EstadoCasoVenta;
+      creado_por_id?: string | null;
+      creado_por_nombre?: string | null;
     },
-    items: { material_id: string; cantidad: number }[]
+    items: { material_id: string; cantidad: number; precio_unitario: number }[]
   ): CasoVenta {
     const cliente = db.clientes.find((c) => c.id === data.cliente_id);
     if (!cliente) throw new Error("Cliente no encontrado");
@@ -2627,10 +2646,14 @@ export const store = {
       ...data,
       titulo: data.titulo.trim(),
       id: uid(),
-      estado: "cotizacion",
+      estado: data.estado ?? "cotizacion",
+      monto: 0, // recalcularMontoCasoVenta lo fija abajo, a partir de items
       cliente_nombre: cliente.nombre,
       responsable_id: null,
       responsable_nombre: null,
+      creado_por_id: data.creado_por_id ?? null,
+      creado_por_nombre: data.creado_por_nombre ?? null,
+      motivo_rechazo: null,
       created_at: now,
       updated_at: now,
     };
@@ -2641,8 +2664,10 @@ export const store = {
         caso_venta_id: caso.id,
         material_id: it.material_id,
         cantidad: it.cantidad,
+        precio_unitario: it.precio_unitario,
       });
     }
+    recalcularMontoCasoVenta(caso.id);
     if (data.responsable_id) {
       store.asignarResponsableCasoVenta(caso.id, data.responsable_id);
     }
@@ -2755,6 +2780,143 @@ export const store = {
         }
       }
     }
+  },
+
+  // Espejo de lib/actions/autorizacion-ventas.ts (rama DEMO). A diferencia
+  // de autorizarCasoCompra, no hay correo/orden que simular ni cantidad
+  // que ajustar — solo confirmar el monto.
+  autorizarCasoVenta(
+    casoId: string,
+    precios: { id: string; precio_unitario: number }[],
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_venta.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de venta no encontrado");
+    if (c.estado !== "por_autorizar")
+      throw new Error("Este caso ya no está pendiente de autorización");
+
+    for (const p of precios) {
+      const item = db.casos_venta_items.find(
+        (i) => i.id === p.id && i.caso_venta_id === casoId
+      );
+      if (item) item.precio_unitario = p.precio_unitario;
+    }
+
+    c.estado = "cotizacion";
+    recalcularMontoCasoVenta(casoId); // también fija updated_at
+
+    store.registrarEventoCasoVenta(
+      casoId,
+      "estado_cambiado",
+      `por_autorizar → cotizacion (autorizado por ${actor.nombre ?? "ventas"})`,
+      actor
+    );
+
+    if (c.creado_por_id) {
+      notificarAutorizacion(
+        c.creado_por_id,
+        `${actor.nombre ?? "Ventas"} autorizó tu cotización "${c.titulo}".`,
+        { caso_venta_id: casoId }
+      );
+    }
+  },
+
+  rechazarCasoVenta(
+    casoId: string,
+    motivo: string | null,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_venta.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de venta no encontrado");
+    if (c.estado !== "por_autorizar")
+      throw new Error("Este caso ya no está pendiente de autorización");
+
+    c.estado = "rechazado";
+    c.motivo_rechazo = motivo;
+    c.updated_at = new Date().toISOString();
+
+    store.registrarEventoCasoVenta(
+      casoId,
+      "estado_cambiado",
+      `por_autorizar → rechazado (${actor.nombre ?? "ventas"})${motivo ? `: ${motivo}` : ""}`,
+      actor
+    );
+
+    if (c.creado_por_id) {
+      const mensaje = motivo
+        ? `${actor.nombre ?? "Ventas"} rechazó tu cotización "${c.titulo}": ${motivo}`
+        : `${actor.nombre ?? "Ventas"} rechazó tu cotización "${c.titulo}".`;
+      notificarAutorizacion(c.creado_por_id, mensaje, { caso_venta_id: casoId });
+    }
+  },
+
+  // Editar un caso "rechazado" y reenviarlo: regresa solo a
+  // "por_autorizar" — nunca se toca el estado a mano. Reemplaza los items
+  // por completo (más simple que un diff, y un caso rechazado nunca
+  // generó salida/movimiento que dependa de ellos).
+  editarCasoVentaRechazado(
+    casoId: string,
+    datos: {
+      cliente_id: string;
+      titulo: string;
+      descripcion: string | null;
+      items: { material_id: string; cantidad: number }[];
+    },
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_venta.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de venta no encontrado");
+    if (c.estado !== "rechazado") throw new Error("Este caso ya no está rechazado");
+    const cliente = db.clientes.find((x) => x.id === datos.cliente_id);
+    if (!cliente) throw new Error("Cliente no encontrado");
+    if (datos.items.length === 0)
+      throw new Error("Agrega al menos un material al caso");
+
+    c.cliente_id = datos.cliente_id;
+    c.cliente_nombre = cliente.nombre;
+    c.titulo = datos.titulo.trim();
+    c.descripcion = datos.descripcion;
+    c.estado = "por_autorizar";
+    c.motivo_rechazo = null;
+
+    db.casos_venta_items = db.casos_venta_items.filter(
+      (i) => i.caso_venta_id !== casoId
+    );
+    for (const it of datos.items) {
+      db.casos_venta_items.push({
+        id: uid(),
+        caso_venta_id: casoId,
+        material_id: it.material_id,
+        cantidad: it.cantidad,
+        // El precio nunca se toca al editar/reenviar — solo se fija al
+        // autorizar (autorizarCasoVenta), sin excepción.
+        precio_unitario: 0,
+      });
+    }
+    recalcularMontoCasoVenta(casoId); // también fija updated_at
+
+    store.registrarEventoCasoVenta(
+      casoId,
+      "estado_cambiado",
+      "rechazado → por_autorizar (editado y reenviado)",
+      actor
+    );
+  },
+
+  // Solo casos "rechazado" — nunca generaron salida/movimiento, borrarlos
+  // no corrompe historial.
+  eliminarCasoVentaRechazado(casoId: string): void {
+    const c = db.casos_venta.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de venta no encontrado");
+    if (c.estado !== "rechazado")
+      throw new Error("Solo se pueden eliminar casos rechazados");
+    db.casos_venta = db.casos_venta.filter((x) => x.id !== casoId);
+    db.casos_venta_items = db.casos_venta_items.filter(
+      (i) => i.caso_venta_id !== casoId
+    );
+    db.casos_venta_eventos = db.casos_venta_eventos.filter(
+      (e) => e.caso_venta_id !== casoId
+    );
   },
 
   /* ---------------- Salidas pendientes ---------------- */

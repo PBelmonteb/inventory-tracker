@@ -495,8 +495,15 @@ export interface Cliente {
   created_at: string;
 }
 
+// "por_autorizar"/"rechazado": mismo patrón que EstadoCasoCompra (ver
+// migración 0043_autorizacion_casos_venta.sql) — un caso creado por
+// operario entra a "por_autorizar" hasta que gestor/ventas lo autorice o
+// rechace. Nunca se llega a estos dos estados por el <select> libre de
+// cambio de estado (ver clientes-view.tsx).
 export type EstadoCasoVenta =
   | "cotizacion"
+  | "por_autorizar"
+  | "rechazado"
   | "confirmado"
   | "en_produccion"
   | "entregado"
@@ -504,6 +511,8 @@ export type EstadoCasoVenta =
 
 export const ESTADOS_CASO_VENTA: EstadoCasoVenta[] = [
   "cotizacion",
+  "por_autorizar",
+  "rechazado",
   "confirmado",
   "en_produccion",
   "entregado",
@@ -523,6 +532,12 @@ export interface CasoVenta {
   // Persona encargada de darle seguimiento (null = sin asignar).
   responsable_id: string | null;
   responsable_nombre: string | null;
+  // Quién creó el caso (null = gestor/ventas, no se registra) — snapshot,
+  // igual que proveedor_nombre/creado_por_nombre en CasoCompra.
+  creado_por_id: string | null;
+  creado_por_nombre: string | null;
+  // Solo si estado === "rechazado".
+  motivo_rechazo: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -532,6 +547,11 @@ export interface CasoVentaItem {
   caso_venta_id: string;
   material_id: string;
   cantidad: number;
+  // Fuente de verdad del monto del caso — casos_venta.monto se recalcula
+  // solo (trigger, ver migración 0045_precio_linea_venta.sql) como
+  // Σ(precio_unitario × cantidad). 0 = sin precio todavía (p. ej. caso
+  // creado por operario, esperando autorización).
+  precio_unitario: number;
 }
 
 export interface CasoVentaConRelaciones extends CasoVenta {

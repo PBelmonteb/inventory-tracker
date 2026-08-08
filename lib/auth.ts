@@ -47,3 +47,11 @@ export function puedeGestionarCompras(profile: Profile | null): boolean {
 export function puedeGestionarVentas(profile: Profile | null): boolean {
   return esGestor(profile) || profile?.rol === "ventas";
 }
+
+/** True si el perfil puede crear una cotización (sin autoridad para
+ *  confirmarla) — gestor/ventas la crea con autoridad completa (como
+ *  hoy); operario también puede crearla, pero entra a "por_autorizar"
+ *  (ver crearCasoVenta) hasta que gestor/ventas la autorice. */
+export function puedeCrearCasoVenta(profile: Profile | null): boolean {
+  return puedeGestionarVentas(profile) || profile?.rol === "operario";
+}

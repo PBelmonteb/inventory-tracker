@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { CasoVentaForm } from "@/components/caso-venta-form";
 import { CasoVentaDetalleModal } from "@/components/caso-venta-detalle-modal";
+import { AutorizarCasoVentaForm } from "@/components/autorizar-caso-venta-form";
+import { EditarCasoVentaRechazadoForm } from "@/components/editar-caso-venta-rechazado-form";
 import { ConveniosClienteView } from "@/components/convenios-cliente-view";
 import { ScorecardClientesView } from "@/components/scorecard-clientes-view";
 import { ResponsableSelect } from "@/components/responsable-select";
@@ -18,6 +20,7 @@ import {
   cancelarSalidaPendiente,
   confirmarSalidaPendiente,
 } from "@/lib/actions/ventas";
+import { eliminarCasoVenta } from "@/lib/actions/autorizacion-ventas";
 import { crearCatalogo, eliminarCatalogo } from "@/lib/actions/catalogos";
 import { formatMoney, formatQty } from "@/lib/utils";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
@@ -29,7 +32,7 @@ import type {
   EstadoCasoVenta,
   SalidaPendienteConRelaciones,
 } from "@/lib/types";
-import { Eye, PackageCheck, Plus, Trash2 } from "lucide-react";
+import { Eye, PackageCheck, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 
 type MaterialOpcion = {
   id: string;
@@ -39,11 +42,13 @@ type MaterialOpcion = {
   stock_actual: number;
 };
 
-const ESTADO_VENTA_META: Record<
+export const ESTADO_VENTA_META: Record<
   EstadoCasoVenta,
   { label: string; tone: "ok" | "warn" | "danger" | "neutral" | "accent" }
 > = {
   cotizacion: { label: "Cotización", tone: "neutral" },
+  por_autorizar: { label: "Pendiente de autorizar", tone: "warn" },
+  rechazado: { label: "Rechazado", tone: "danger" },
   confirmado: { label: "Confirmado", tone: "accent" },
   en_produccion: { label: "En producción", tone: "warn" },
   entregado: { label: "Entregado", tone: "ok" },
@@ -51,6 +56,17 @@ const ESTADO_VENTA_META: Record<
 };
 
 const ACTIVOS: EstadoCasoVenta[] = ["cotizacion", "confirmado", "en_produccion"];
+
+// "por_autorizar"/"rechazado" nunca se ofrecen en el <select> libre de
+// cambio de estado — solo se llega/sale de ahí vía crear/autorizar/
+// rechazar/editar-y-reenviar (ver lib/actions/autorizacion-ventas.ts).
+const ESTADOS_SELECCIONABLES: EstadoCasoVenta[] = [
+  "cotizacion",
+  "confirmado",
+  "en_produccion",
+  "entregado",
+  "cancelado",
+];
 
 type TabId = "casos" | "convenios" | "scorecard";
 
@@ -64,6 +80,8 @@ export function ClientesView({
   convenios,
   scorecardClientes,
   puedeGestionarVentas,
+  puedeCrearCasoVenta,
+  profileId,
   tabInicial,
 }: {
   clientes: Cliente[];
@@ -78,6 +96,11 @@ export function ClientesView({
   convenios: ConvenioClienteConRelaciones[];
   scorecardClientes: ScorecardClienteConNombre[];
   puedeGestionarVentas: boolean;
+  // Además de gestor/ventas, operario también puede crear una cotización
+  // (sin autoridad para confirmarla) — ver migración
+  // 0043_autorizacion_casos_venta.sql.
+  puedeCrearCasoVenta: boolean;
+  profileId: string | null;
   tabInicial?: TabId;
 }) {
   const router = useRouter();
@@ -88,6 +111,9 @@ export function ClientesView({
   const [detalleCaso, setDetalleCaso] = useState<CasoVentaConRelaciones | null>(
     null
   );
+  const [autorizando, setAutorizando] = useState<CasoVentaConRelaciones | null>(null);
+  const [editandoRechazado, setEditandoRechazado] =
+    useState<CasoVentaConRelaciones | null>(null);
   const [errorSalida, setErrorSalida] = useState<{
     id: string;
     mensaje: string;
@@ -99,6 +125,8 @@ export function ClientesView({
   const pendientes = salidasPendientes.filter((s) => s.estado === "pendiente");
   const casosActivos = casos.filter((c) => ACTIVOS.includes(c.estado));
   const montoPipeline = casosActivos.reduce((sum, c) => sum + c.monto, 0);
+  const casosPorAutorizar = casos.filter((c) => c.estado === "por_autorizar");
+  const casosRechazados = casos.filter((c) => c.estado === "rechazado");
 
   const casosFiltrados = casos.filter(
     (c) =>
@@ -182,6 +210,133 @@ export function ClientesView({
     router.refresh();
   }
 
+  async function eliminarRechazado(id: string) {
+    if (!confirm("¿Eliminar esta cotización rechazada? No se puede deshacer.")) return;
+    const res = await eliminarCasoVenta(id);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  // ---------------- Modo operario: crea, ve lo suyo, agrega notas ----------------
+  if (!puedeGestionarVentas) {
+    const misCasos = casos.filter((c) => c.creado_por_id === profileId);
+    return (
+      <div className="mx-auto max-w-4xl p-4 md:p-8">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
+              Portal de clientes
+            </h1>
+            <p className="mt-1 text-sm text-muted">
+              Manda una cotización a Ventas para que la autorice.
+            </p>
+          </div>
+          {puedeCrearCasoVenta && (
+            <Button onClick={() => setFormAbierto(true)}>
+              <Plus className="h-4 w-4" /> Nueva cotización
+            </Button>
+          )}
+        </div>
+
+        <Card className="p-4 md:p-5">
+          <h2 className="mb-3 font-semibold text-fg">Mis cotizaciones enviadas</h2>
+          {misCasos.length === 0 ? (
+            <p className="py-2 text-sm text-faint">Aún no has enviado ninguna.</p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {misCasos.map((c) => (
+                <li key={c.id} className="py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-fg">
+                        <button
+                          type="button"
+                          onClick={() => setDetalleCaso(c)}
+                          className="cursor-pointer text-left hover:text-accent hover:underline"
+                        >
+                          {c.titulo}
+                        </button>
+                        {c.referencia && (
+                          <span className="ml-2 text-xs font-normal text-faint">
+                            {c.referencia}
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {c.clientes?.nombre ?? c.cliente_nombre ?? "Cliente eliminado"}
+                        {c.monto > 0 && <> · {formatMoney(c.monto)}</>}
+                      </p>
+                      {c.items.length > 0 && (
+                        <p className="mt-0.5 text-xs text-faint">
+                          {c.items
+                            .map((i) => `${i.materiales?.nombre ?? "Material"} ×${formatQty(i.cantidad)}`)
+                            .join(" · ")}
+                        </p>
+                      )}
+                      {c.estado === "rechazado" && c.motivo_rechazo && (
+                        <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">
+                          {c.motivo_rechazo}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge tone={ESTADO_VENTA_META[c.estado].tone}>
+                        {ESTADO_VENTA_META[c.estado].label}
+                      </Badge>
+                      {c.estado === "rechazado" && (
+                        <Button
+                          variant="secondary"
+                          className="px-2.5 py-1 text-xs"
+                          onClick={() => setEditandoRechazado(c)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Editar
+                        </Button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setDetalleCaso(c)}
+                        title="Ver detalle y timeline"
+                        aria-label="Ver detalle y timeline"
+                        className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-fg"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <CasoVentaForm
+          open={formAbierto}
+          onClose={() => setFormAbierto(false)}
+          clientes={clientes}
+          materiales={materiales}
+          usuarios={usuarios}
+          puedeGestionarVentas={false}
+        />
+        <CasoVentaDetalleModal
+          open={!!detalleCaso}
+          onClose={() => setDetalleCaso(null)}
+          caso={detalleCaso}
+          puedeGestionarVentas={false}
+        />
+        <EditarCasoVentaRechazadoForm
+          caso={editandoRechazado}
+          clientes={clientes}
+          materiales={materiales}
+          onClose={() => setEditandoRechazado(null)}
+        />
+      </div>
+    );
+  }
+
+  // ---------------- Modo gestor/ventas: autoridad completa ----------------
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-8">
       {/* Header */}
@@ -321,52 +476,109 @@ export function ClientesView({
       </Card>
 
       {/* Pestañas */}
-      {puedeGestionarVentas && (
-        <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-surface p-1">
-          {(
-            [
-              { id: "casos" as const, label: "Casos de venta", count: casos.length },
-              { id: "convenios" as const, label: "Convenios", count: convenios.length },
-              {
-                id: "scorecard" as const,
-                label: "Scorecard",
-                count: scorecardClientes.length,
-              },
-            ]
-          ).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
+      <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl border border-line bg-surface p-1">
+        {(
+          [
+            { id: "casos" as const, label: "Casos de venta", count: casos.length },
+            { id: "convenios" as const, label: "Convenios", count: convenios.length },
+            {
+              id: "scorecard" as const,
+              label: "Scorecard",
+              count: scorecardClientes.length,
+            },
+          ]
+        ).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={
+              "flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors " +
+              (tab === t.id ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-2 hover:text-fg")
+            }
+          >
+            {t.label}
+            <span
               className={
-                "flex shrink-0 items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors " +
-                (tab === t.id ? "bg-accent text-accent-fg" : "text-muted hover:bg-surface-2 hover:text-fg")
+                "rounded-full px-1.5 py-0.5 text-[11px] font-semibold " +
+                (tab === t.id ? "bg-accent-fg/20" : "bg-surface-2 text-faint")
               }
             >
-              {t.label}
-              <span
-                className={
-                  "rounded-full px-1.5 py-0.5 text-[11px] font-semibold " +
-                  (tab === t.id ? "bg-accent-fg/20" : "bg-surface-2 text-faint")
-                }
-              >
-                {t.count}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
+              {t.count}
+            </span>
+          </button>
+        ))}
+      </div>
 
-      {tab === "convenios" && puedeGestionarVentas && (
+      {tab === "convenios" && (
         <ConveniosClienteView convenios={convenios} clientes={clientes} materiales={materiales} />
       )}
 
-      {tab === "scorecard" && puedeGestionarVentas && (
-        <ScorecardClientesView clientes={scorecardClientes} />
-      )}
+      {tab === "scorecard" && <ScorecardClientesView clientes={scorecardClientes} />}
 
       {tab === "casos" && (
         <>
+      {/* Pendientes de autorizar — casos creados por operario, esperando a
+          ventas/gestor. Solo aparece si hay algo que revisar. */}
+      {casosPorAutorizar.length > 0 && (
+        <Card className="mb-6 p-4 md:p-5">
+          <h2 className="mb-3 font-semibold text-fg">Pendientes de autorizar</h2>
+          <ul className="divide-y divide-line">
+            {casosPorAutorizar.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-fg">{c.titulo}</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {c.clientes?.nombre ?? c.cliente_nombre ?? "Cliente eliminado"}
+                    {c.creado_por_nombre && <> · Creado por {c.creado_por_nombre}</>}
+                  </p>
+                </div>
+                <Button className="px-2.5 py-1 text-xs" onClick={() => setAutorizando(c)}>
+                  <ShieldCheck className="h-3.5 w-3.5" /> Revisar
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {/* Rechazadas — se pueden editar y reenviar, o eliminar. */}
+      {casosRechazados.length > 0 && (
+        <Card className="mb-6 p-4 md:p-5">
+          <h2 className="mb-3 font-semibold text-fg">Rechazadas</h2>
+          <ul className="divide-y divide-line">
+            {casosRechazados.map((c) => (
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-fg">{c.titulo}</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {c.clientes?.nombre ?? c.cliente_nombre ?? "Cliente eliminado"}
+                    {c.motivo_rechazo && <> · {c.motivo_rechazo}</>}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="secondary"
+                    className="px-2.5 py-1 text-xs"
+                    onClick={() => setEditandoRechazado(c)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Editar
+                  </Button>
+                  <button
+                    onClick={() => eliminarRechazado(c.id)}
+                    aria-label="Eliminar caso"
+                    title="Eliminar"
+                    className="cursor-pointer rounded-lg p-1.5 text-faint transition-colors hover:bg-surface-2 hover:text-red-600 dark:hover:text-red-400"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {/* Casos de venta */}
       <Card className="mb-6 p-4 md:p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -483,20 +695,26 @@ export function ClientesView({
                   <Badge tone={ESTADO_VENTA_META[c.estado].tone}>
                     {ESTADO_VENTA_META[c.estado].label}
                   </Badge>
-                  <Select
-                    value={c.estado}
-                    onChange={(e) =>
-                      cambiarEstado(c.id, e.target.value as EstadoCasoVenta)
-                    }
-                    className="w-auto py-1 text-xs"
-                    aria-label="Cambiar estado del caso"
-                  >
-                    {Object.entries(ESTADO_VENTA_META).map(([valor, meta]) => (
-                      <option key={valor} value={valor}>
-                        {meta.label}
-                      </option>
-                    ))}
-                  </Select>
+                  {c.estado === "por_autorizar" || c.estado === "rechazado" ? (
+                    <span className="text-xs text-faint">
+                      {c.estado === "por_autorizar" ? "Ver arriba para revisar" : "Ver arriba para editar"}
+                    </span>
+                  ) : (
+                    <Select
+                      value={c.estado}
+                      onChange={(e) =>
+                        cambiarEstado(c.id, e.target.value as EstadoCasoVenta)
+                      }
+                      className="w-auto py-1 text-xs"
+                      aria-label="Cambiar estado del caso"
+                    >
+                      {ESTADOS_SELECCIONABLES.map((valor) => (
+                        <option key={valor} value={valor}>
+                          {ESTADO_VENTA_META[valor].label}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
                   <ResponsableSelect
                     usuarios={usuarios}
                     value={c.responsable_id ?? ""}
@@ -527,12 +745,20 @@ export function ClientesView({
         clientes={clientes}
         materiales={materiales}
         usuarios={usuarios}
+        puedeGestionarVentas
       />
       <CasoVentaDetalleModal
         open={!!detalleCaso}
         onClose={() => setDetalleCaso(null)}
         caso={detalleCaso}
         puedeGestionarVentas={puedeGestionarVentas}
+      />
+      <AutorizarCasoVentaForm caso={autorizando} onClose={() => setAutorizando(null)} />
+      <EditarCasoVentaRechazadoForm
+        caso={editandoRechazado}
+        clientes={clientes}
+        materiales={materiales}
+        onClose={() => setEditandoRechazado(null)}
       />
     </div>
   );

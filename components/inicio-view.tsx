@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Badge, Card } from "@/components/ui";
 import { ESTADO_META } from "@/components/caso-compra-card";
+import { ESTADO_VENTA_META } from "@/components/clientes-view";
 import { formatMoney, formatQty, formatDate } from "@/lib/utils";
 import type { InicioGestor, InicioOperario, InicioCompras, InicioVentas } from "@/lib/inicio";
 import {
@@ -325,7 +326,7 @@ export function InicioComprasView({ nombre, datos }: { nombre: string; datos: In
 // venta activos y salidas pendientes por confirmar — sin bandeja de
 // aprobaciones (ventas no tiene ese flujo, ver plan de rol-ventas).
 export function InicioVentasView({ nombre, datos }: { nombre: string; datos: InicioVentas }) {
-  const { kpis, casosActivos, salidasPendientes, notificaciones } = datos;
+  const { kpis, casosActivos, salidasPendientes, porAutorizar, notificaciones } = datos;
 
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-8">
@@ -345,7 +346,7 @@ export function InicioVentasView({ nombre, datos }: { nombre: string; datos: Ini
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Kpi
           icon={<GitBranch className="h-5 w-5" />}
           label="Casos activos"
@@ -357,9 +358,36 @@ export function InicioVentasView({ nombre, datos }: { nombre: string; datos: Ini
           value={String(kpis.salidasPorConfirmar)}
           tone={kpis.salidasPorConfirmar > 0 ? "warn" : "accent"}
         />
+        <Kpi
+          icon={<AlertTriangle className="h-5 w-5" />}
+          label="Por autorizar"
+          value={String(kpis.casosPorAutorizar)}
+          tone={kpis.casosPorAutorizar > 0 ? "danger" : "accent"}
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
+        <CardAccion
+          titulo="Por autorizar"
+          icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
+          verTodosHref="/clientes"
+          vacio={porAutorizar.length === 0}
+        >
+          {porAutorizar.map((c) => (
+            <li key={c.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+              <div className="min-w-0">
+                <Link href="/clientes" className="font-medium text-fg hover:text-accent">
+                  {c.titulo}
+                </Link>
+                <p className="truncate text-xs text-faint">
+                  {c.clientes?.nombre ?? c.cliente_nombre ?? "Sin cliente"}
+                  {c.creado_por_nombre && <> · {c.creado_por_nombre}</>}
+                </p>
+              </div>
+            </li>
+          ))}
+        </CardAccion>
+
         <CardAccion
           titulo="Casos activos"
           icon={<GitBranch className="h-4 w-4 text-accent" />}
@@ -423,8 +451,14 @@ export function InicioVentasView({ nombre, datos }: { nombre: string; datos: Ini
 }
 
 export function InicioOperarioView({ nombre, datos }: { nombre: string; datos: InicioOperario }) {
-  const { misCasosEnviados, responsabilidadesCompra, responsabilidadesVenta, salidasPendientes, notificaciones } =
-    datos;
+  const {
+    misCasosEnviados,
+    misCasosVentaEnviados,
+    responsabilidadesCompra,
+    responsabilidadesVenta,
+    salidasPendientes,
+    notificaciones,
+  } = datos;
   const totalResponsabilidades =
     responsabilidadesCompra.length + responsabilidadesVenta.length + salidasPendientes.length;
 
@@ -439,7 +473,7 @@ export function InicioOperarioView({ nombre, datos }: { nombre: string; datos: I
 
       <div className="grid gap-4 md:grid-cols-2">
         <CardAccion
-          titulo="Tus casos enviados"
+          titulo="Tus casos de compra enviados"
           icon={<Send className="h-4 w-4 text-accent" />}
           verTodosHref="/proveedores"
           vacio={misCasosEnviados.length === 0}
@@ -453,6 +487,30 @@ export function InicioOperarioView({ nombre, datos }: { nombre: string; datos: I
                     {c.titulo}
                   </Link>
                   <p className="truncate text-xs text-faint">{c.proveedores?.nombre ?? "Sin proveedor"}</p>
+                </div>
+                <Badge tone={meta.tone}>{meta.label}</Badge>
+              </li>
+            );
+          })}
+        </CardAccion>
+
+        <CardAccion
+          titulo="Tus cotizaciones de venta enviadas"
+          icon={<Send className="h-4 w-4 text-accent" />}
+          verTodosHref="/clientes"
+          vacio={misCasosVentaEnviados.length === 0}
+        >
+          {misCasosVentaEnviados.map((c) => {
+            const meta = ESTADO_VENTA_META[c.estado];
+            return (
+              <li key={c.id} className="flex items-center justify-between gap-2 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <Link href="/clientes" className="font-medium text-fg hover:text-accent">
+                    {c.titulo}
+                  </Link>
+                  <p className="truncate text-xs text-faint">
+                    {c.clientes?.nombre ?? c.cliente_nombre ?? "Sin cliente"}
+                  </p>
                 </div>
                 <Badge tone={meta.tone}>{meta.label}</Badge>
               </li>

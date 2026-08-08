@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Badge, Button, Input, Label, Select } from "@/components/ui";
@@ -21,7 +21,7 @@ type MaterialOpcion = {
   stock_actual: number;
 };
 
-type Fila = { material_id: string; cantidad: string };
+type Fila = { material_id: string; cantidad: string; precio: string };
 
 export function CasoVentaForm({
   open,
@@ -29,49 +29,47 @@ export function CasoVentaForm({
   clientes,
   materiales,
   usuarios,
+  puedeGestionarVentas = true,
 }: {
   open: boolean;
   onClose: () => void;
   clientes: Cliente[];
   materiales: MaterialOpcion[];
   usuarios: UsuarioAsignable[];
+  // false = operario: crea la cotización pero sin autoridad para
+  // confirmarla — entra a "por_autorizar" (lib/actions/ventas.ts). No
+  // captura precio ni responsable, eso le toca a ventas/gestor (al crear
+  // si tiene autoridad, o al autorizar si no la tiene).
+  puedeGestionarVentas?: boolean;
 }) {
   const router = useRouter();
   const [clienteId, setClienteId] = useState("");
-  const [filas, setFilas] = useState<Fila[]>([{ material_id: "", cantidad: "" }]);
+  const [filas, setFilas] = useState<Fila[]>([
+    { material_id: "", cantidad: "", precio: "" },
+  ]);
   const [responsableId, setResponsableId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
-  // Convenio vigente por fila (índice → convenio o null), alimentado por
-  // FilaMaterial más abajo — usado por "Calcular con convenios".
-  const [conveniosPorFila, setConveniosPorFila] = useState<
-    Record<number, ConvenioCliente | null>
-  >({});
-  const montoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
       setClienteId("");
-      setFilas([{ material_id: "", cantidad: "" }]);
+      setFilas([{ material_id: "", cantidad: "", precio: "" }]);
       setResponsableId("");
-      setConveniosPorFila({});
       setError(null);
     }
   }, [open]);
 
-  // Suma precio_pactado × cantidad de las filas con convenio vigente; las
-  // filas sin convenio quedan fuera de la suma (el usuario ajusta a mano).
-  function calcularConConvenios() {
-    const total = filas.reduce((sum, fila, i) => {
-      const convenio = conveniosPorFila[i];
-      const cantidad = Number(fila.cantidad);
-      if (!convenio || !Number.isFinite(cantidad) || cantidad <= 0) return sum;
-      return sum + convenio.precio_pactado * cantidad;
-    }, 0);
-    if (montoRef.current) montoRef.current.value = total.toFixed(2);
-  }
-
-  const hayAlgunConvenio = Object.values(conveniosPorFila).some((c) => c);
+  // Total en vivo — el monto del caso ya no se captura a mano, lo deriva
+  // el trigger de la BD a partir de precio_unitario × cantidad de cada
+  // item (migración 0045_precio_linea_venta.sql). Esto solo es la vista
+  // previa antes de guardar.
+  const total = filas.reduce((sum, f) => {
+    const cantidad = Number(f.cantidad);
+    const precio = Number(f.precio);
+    if (!Number.isFinite(cantidad) || !Number.isFinite(precio)) return sum;
+    return sum + cantidad * precio;
+  }, 0);
 
   function setFila(i: number, cambio: Partial<Fila>) {
     setFilas((prev) =>
@@ -83,7 +81,11 @@ export function CasoVentaForm({
     setError(null);
     const items = filas
       .filter((f) => f.material_id)
-      .map((f) => ({ material_id: f.material_id, cantidad: Number(f.cantidad) }));
+      .map((f) => ({
+        material_id: f.material_id,
+        cantidad: Number(f.cantidad),
+        precio_unitario: Number(f.precio) || 0,
+      }));
     if (items.length === 0) {
       setError("Agrega al menos un material");
       return;
@@ -138,30 +140,18 @@ export function CasoVentaForm({
           <Input id="cv-descripcion" name="descripcion" placeholder="Opcional" />
         </div>
 
-        <div>
-          <Label htmlFor="cv-responsable">Responsable (opcional)</Label>
-          <ResponsableSelect
-            usuarios={usuarios}
-            value={responsableId}
-            onChange={setResponsableId}
-            ariaLabel="Responsable del caso"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <Label htmlFor="cv-monto">Monto (MXN)</Label>
-            <Input
-              id="cv-monto"
-              name="monto"
-              type="number"
-              step="any"
-              min="0"
-              placeholder="0.00"
-              ref={montoRef}
-              defaultValue=""
-            />
-          </div>
+        <div className={puedeGestionarVentas ? "grid grid-cols-2 gap-2" : ""}>
+          {puedeGestionarVentas && (
+            <div>
+              <Label htmlFor="cv-responsable">Responsable (opcional)</Label>
+              <ResponsableSelect
+                usuarios={usuarios}
+                value={responsableId}
+                onChange={setResponsableId}
+                ariaLabel="Responsable del caso"
+              />
+            </div>
+          )}
           <div>
             <Label htmlFor="cv-referencia">Referencia</Label>
             <Input
@@ -171,6 +161,13 @@ export function CasoVentaForm({
             />
           </div>
         </div>
+
+        {!puedeGestionarVentas && (
+          <p className="rounded-lg bg-accent/10 px-3 py-2 text-xs text-accent">
+            Esta cotización se manda a Ventas para autorización — tú no
+            capturas el precio, lo hace quien la autorice.
+          </p>
+        )}
 
         <div>
           <Label>Materiales requeridos</Label>
@@ -182,36 +179,32 @@ export function CasoVentaForm({
                 index={i}
                 materiales={materiales}
                 clienteId={clienteId}
+                puedeGestionarVentas={puedeGestionarVentas}
                 onCambiar={(cambio) => setFila(i, cambio)}
-                onConvenio={(convenio) =>
-                  setConveniosPorFila((prev) => ({ ...prev, [i]: convenio }))
-                }
                 onQuitar={() => setFilas((prev) => prev.filter((_, idx) => idx !== i))}
                 puedeQuitar={filas.length > 1}
               />
             ))}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() =>
-                setFilas((prev) => [...prev, { material_id: "", cantidad: "" }])
-              }
-              className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-accent hover:underline"
-            >
-              <Plus className="h-4 w-4" /> Agregar material
-            </button>
-            {hayAlgunConvenio && (
-              <button
-                type="button"
-                onClick={calcularConConvenios}
-                className="inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-accent hover:underline"
-              >
-                Calcular con convenios
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setFilas((prev) => [
+                ...prev,
+                { material_id: "", cantidad: "", precio: "" },
+              ])
+            }
+            className="mt-2 inline-flex cursor-pointer items-center gap-1.5 text-sm font-medium text-accent hover:underline"
+          >
+            <Plus className="h-4 w-4" /> Agregar material
+          </button>
         </div>
+
+        {puedeGestionarVentas && (
+          <p className="text-right text-sm font-medium text-fg">
+            Total: {formatMoney(total)}
+          </p>
+        )}
 
         {error && (
           <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
@@ -240,8 +233,8 @@ function FilaMaterial({
   index,
   materiales,
   clienteId,
+  puedeGestionarVentas,
   onCambiar,
-  onConvenio,
   onQuitar,
   puedeQuitar,
 }: {
@@ -249,8 +242,8 @@ function FilaMaterial({
   index: number;
   materiales: MaterialOpcion[];
   clienteId: string;
+  puedeGestionarVentas: boolean;
   onCambiar: (cambio: Partial<Fila>) => void;
-  onConvenio: (convenio: ConvenioCliente | null) => void;
   onQuitar: () => void;
   puedeQuitar: boolean;
 }) {
@@ -258,23 +251,23 @@ function FilaMaterial({
   const sel = materiales.find((m) => m.id === fila.material_id);
 
   useEffect(() => {
-    if (!clienteId || !fila.material_id) {
+    if (!puedeGestionarVentas || !clienteId || !fila.material_id) {
       setConvenio(null);
-      onConvenio(null);
       return;
     }
     let cancelado = false;
     obtenerConvenioClienteVigente(fila.material_id, clienteId).then((c) => {
-      if (!cancelado) {
-        setConvenio(c);
-        onConvenio(c);
-      }
+      if (cancelado) return;
+      setConvenio(c);
+      // Prellena el precio con el convenio solo si el campo sigue vacío
+      // — no pisa un precio que el usuario ya haya ajustado a mano.
+      if (c && !fila.precio) onCambiar({ precio: String(c.precio_pactado) });
     });
     return () => {
       cancelado = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clienteId, fila.material_id]);
+  }, [puedeGestionarVentas, clienteId, fila.material_id]);
 
   return (
     <div className="flex items-start gap-2">
@@ -311,11 +304,23 @@ function FilaMaterial({
         step="any"
         min="0"
         placeholder="Cant."
-        className="w-24"
+        className="w-20"
         value={fila.cantidad}
         onChange={(e) => onCambiar({ cantidad: e.target.value })}
         aria-label={`Cantidad ${index + 1}`}
       />
+      {puedeGestionarVentas && (
+        <Input
+          type="number"
+          step="any"
+          min="0"
+          placeholder="Precio"
+          className="w-24"
+          value={fila.precio}
+          onChange={(e) => onCambiar({ precio: e.target.value })}
+          aria-label={`Precio unitario ${index + 1}`}
+        />
+      )}
       <button
         type="button"
         onClick={onQuitar}

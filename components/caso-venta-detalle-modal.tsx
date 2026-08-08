@@ -115,7 +115,11 @@ export function CasoVentaDetalleModal({
           {caso.items.length > 0 && (
             <p className="mt-0.5 text-xs text-faint">
               {caso.items
-                .map((i) => `${i.materiales?.nombre ?? "Material"} ×${i.cantidad}`)
+                .map((i) =>
+                  i.precio_unitario > 0
+                    ? `${i.materiales?.nombre ?? "Material"} ×${i.cantidad} @ ${formatMoney(i.precio_unitario)} = ${formatMoney(i.cantidad * i.precio_unitario)}`
+                    : `${i.materiales?.nombre ?? "Material"} ×${i.cantidad}`
+                )
                 .join(" · ")}
             </p>
           )}

@@ -76,13 +76,13 @@ const NAV = [
     ocultoVentas: true,
   },
   { href: "/proveedores", label: "Proveedores", icon: Truck, ocultoVentas: true },
-  // Oculto para operario (no maneja el Portal de Clientes) y para compras
-  // (clientes/ventas no es su función) — visible para gestor y ventas.
+  // Oculto para compras (clientes/ventas no es su función) — visible para
+  // gestor, ventas, y operario (puede crear una cotización sin autoridad
+  // para confirmarla, ver migración 0043_autorizacion_casos_venta.sql).
   {
     href: "/clientes",
     label: "Clientes",
     icon: Users,
-    ocultoOperario: true,
     ocultoCompras: true,
   },
   { href: "/analisis", label: "Análisis", icon: BarChart3, gestor: true },
@@ -114,7 +114,6 @@ export function AppShell({
     (i) =>
       (!i.gestor || esGestor) &&
       (!i.gestorOCompras || puedeGestionarCompras) &&
-      !(i.ocultoOperario && profile.rol === "operario") &&
       !(i.ocultoCompras && profile.rol === "compras") &&
       !(i.ocultoVentas && profile.rol === "ventas")
   );

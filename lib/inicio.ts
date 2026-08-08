@@ -70,6 +70,10 @@ export async function getInicioGestor(): Promise<InicioGestor> {
 
 export interface InicioOperario {
   misCasosEnviados: CasoCompraConRelaciones[];
+  // Cotizaciones de venta que él mismo mandó a autorizar (ver migración
+  // 0043_autorizacion_casos_venta.sql) — mismo espíritu que
+  // misCasosEnviados del lado de compras.
+  misCasosVentaEnviados: CasoVentaConRelaciones[];
   responsabilidadesCompra: CasoCompraConRelaciones[];
   responsabilidadesVenta: CasoVentaConRelaciones[];
   salidasPendientes: SalidaPendienteConRelaciones[];
@@ -91,6 +95,11 @@ export async function getInicioOperario(profileId: string): Promise<InicioOperar
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
     .slice(0, LIMITE_LISTA);
 
+  const misCasosVentaEnviados = casosVenta
+    .filter((c) => c.creado_por_id === profileId)
+    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
+    .slice(0, LIMITE_LISTA);
+
   const responsabilidadesCompra = casosCompra
     .filter((c) => c.responsable_id === profileId && ABIERTO_COMPRA.includes(c.estado))
     .slice(0, LIMITE_LISTA);
@@ -105,6 +114,7 @@ export async function getInicioOperario(profileId: string): Promise<InicioOperar
 
   return {
     misCasosEnviados,
+    misCasosVentaEnviados,
     responsabilidadesCompra,
     responsabilidadesVenta,
     salidasPendientes,
@@ -146,13 +156,18 @@ export async function getInicioCompras(): Promise<InicioCompras> {
 
 // Igual espíritu que InicioCompras pero del lado de ventas: casos de venta
 // activos y salidas pendientes por confirmar — nada de compras/inventario.
+// A diferencia de compras, no hay umbral por monto (ver migración
+// 0043_autorizacion_casos_venta.sql) — cualquier caso "por_autorizar" lo
+// puede autorizar cualquier gestor/ventas, sin distinción admin/gerente.
 export interface InicioVentas {
   kpis: {
     casosActivos: number;
     salidasPorConfirmar: number;
+    casosPorAutorizar: number;
   };
   casosActivos: CasoVentaConRelaciones[];
   salidasPendientes: SalidaPendienteConRelaciones[];
+  porAutorizar: CasoVentaConRelaciones[];
   notificaciones: NotificacionConRelaciones[];
 }
 
@@ -165,14 +180,17 @@ export async function getInicioVentas(): Promise<InicioVentas> {
 
   const casosActivos = casosVenta.filter((c) => ABIERTO_VENTA.includes(c.estado));
   const salidasPendientes = salidas.filter((s) => s.estado === "pendiente");
+  const porAutorizar = casosVenta.filter((c) => c.estado === "por_autorizar");
 
   return {
     kpis: {
       casosActivos: casosActivos.length,
       salidasPorConfirmar: salidasPendientes.length,
+      casosPorAutorizar: porAutorizar.length,
     },
     casosActivos: casosActivos.slice(0, LIMITE_LISTA),
     salidasPendientes: salidasPendientes.slice(0, LIMITE_LISTA),
+    porAutorizar: porAutorizar.slice(0, LIMITE_LISTA),
     notificaciones: notificaciones.slice(0, LIMITE_LISTA),
   };
 }

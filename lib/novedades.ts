@@ -22,6 +22,18 @@ export const NOVEDADES: NovedadesMes[] = [
     mes: "Agosto 2026",
     items: [
       {
+        titulo: "Precio por material en cada cotización",
+        descripcion:
+          "Cada cotización de venta ahora muestra el precio de cada material por separado, no solo un total — y se prellena solo cuando ya hay un precio pactado con ese cliente. El PDF de la cotización también lo muestra línea por línea.",
+        tipo: "mejora",
+      },
+      {
+        titulo: "Autorización de cotizaciones de venta",
+        descripcion:
+          "El personal de planta ya puede armar una cotización para un cliente y mandarla a Ventas para que la autorice antes de confirmarse — el mismo candado que ya existía del lado de compras.",
+        tipo: "nuevo",
+      },
+      {
         titulo: "Menú más simple",
         descripcion:
           "El menú del gestor bajó de 23 a 13 pestañas: reportes, clasificación y planeación viven ahora en \"Análisis\"; catálogos, usuarios y configuración en \"Administración\". Todo en el mismo lugar de siempre, solo que más ordenado.",

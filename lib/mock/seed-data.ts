@@ -455,6 +455,9 @@ export function makeSeed(): {
     },
   ];
 
+  // monto de cada caso = Σ(precio_unitario × cantidad) de sus items (ver
+  // casos_venta_items más abajo) — igual que el trigger recalcular_monto_
+  // caso_venta en Supabase real (migración 0045_precio_linea_venta.sql).
   const casos_venta: CasoVenta[] = [
     {
       id: "cv-1",
@@ -462,11 +465,14 @@ export function makeSeed(): {
       cliente_nombre: "Vidrios y Cancelería GDL",
       titulo: "Ventanas residencial Lomas",
       descripcion: "12 ventanas corredizas para fraccionamiento.",
-      monto: 58000,
+      monto: 6760,
       referencia: "OV-3001",
       estado: "entregado",
       responsable_id: null,
       responsable_nombre: null,
+      creado_por_id: null,
+      creado_por_nombre: null,
+      motivo_rechazo: null,
       created_at: diasAtras(12),
       updated_at: diasAtras(1),
     },
@@ -476,11 +482,14 @@ export function makeSeed(): {
       cliente_nombre: "Constructora Mira",
       titulo: "Cancelería oficina PB",
       descripcion: "Cancelería completa de planta baja, torre Mira.",
-      monto: 112000,
+      monto: 18400,
       referencia: "OV-3002",
       estado: "en_produccion",
       responsable_id: "user-ventas-2",
       responsable_nombre: "Ana Torres (Ventas)",
+      creado_por_id: null,
+      creado_por_nombre: null,
+      motivo_rechazo: null,
       created_at: diasAtras(8),
       updated_at: diasAtras(2),
     },
@@ -490,11 +499,14 @@ export function makeSeed(): {
       cliente_nombre: "Arq. Laura Domínguez",
       titulo: "Puerta corrediza",
       descripcion: "Puerta corrediza a medida para residencia.",
-      monto: 14500,
+      monto: 260,
       referencia: "OV-3003",
       estado: "cotizacion",
       responsable_id: null,
       responsable_nombre: null,
+      creado_por_id: null,
+      creado_por_nombre: null,
+      motivo_rechazo: null,
       created_at: diasAtras(3),
       updated_at: diasAtras(3),
     },
@@ -504,23 +516,26 @@ export function makeSeed(): {
       cliente_nombre: "Fachadas del Bajío",
       titulo: "Fachada local comercial",
       descripcion: "El cliente pospuso el proyecto.",
-      monto: 35000,
+      monto: 25000,
       referencia: "OV-3004",
       estado: "cancelado",
       responsable_id: null,
       responsable_nombre: null,
+      creado_por_id: null,
+      creado_por_nombre: null,
+      motivo_rechazo: null,
       created_at: diasAtras(15),
       updated_at: diasAtras(10),
     },
   ];
 
   const casos_venta_items: CasoVentaItem[] = [
-    { id: "cvi-1", caso_venta_id: "cv-1", material_id: "mat-perf001", cantidad: 40 },
-    { id: "cvi-2", caso_venta_id: "cv-1", material_id: "mat-her002", cantidad: 24 },
-    { id: "cvi-3", caso_venta_id: "cv-2", material_id: "mat-perf002", cantidad: 60 },
-    { id: "cvi-4", caso_venta_id: "cv-2", material_id: "mat-lam001", cantidad: 10 },
-    { id: "cvi-5", caso_venta_id: "cv-3", material_id: "mat-her002", cantidad: 4 },
-    { id: "cvi-6", caso_venta_id: "cv-4", material_id: "mat-perf003", cantidad: 100 },
+    { id: "cvi-1", caso_venta_id: "cv-1", material_id: "mat-perf001", cantidad: 40, precio_unitario: 130 },
+    { id: "cvi-2", caso_venta_id: "cv-1", material_id: "mat-her002", cantidad: 24, precio_unitario: 65 },
+    { id: "cvi-3", caso_venta_id: "cv-2", material_id: "mat-perf002", cantidad: 60, precio_unitario: 210 },
+    { id: "cvi-4", caso_venta_id: "cv-2", material_id: "mat-lam001", cantidad: 10, precio_unitario: 580 },
+    { id: "cvi-5", caso_venta_id: "cv-3", material_id: "mat-her002", cantidad: 4, precio_unitario: 65 },
+    { id: "cvi-6", caso_venta_id: "cv-4", material_id: "mat-perf003", cantidad: 100, precio_unitario: 250 },
   ];
 
   // cv-1 está entregado → sus salidas esperan confirmación manual.

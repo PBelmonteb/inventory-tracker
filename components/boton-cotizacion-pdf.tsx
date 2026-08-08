@@ -2,9 +2,9 @@
 
 // Cotización en PDF, 100% client-side (sin ida al servidor) — mismo
 // espíritu que lib/utils.ts:exportarCSV, solo que arma un PDF en vez de un
-// CSV. Sin precio por línea: casos_venta_items no tiene precio propio
-// (solo un `monto` total del caso, ver [[convenios-clientes]]) — se lista
-// material × cantidad y el total al final, honesto con el dato que existe.
+// CSV. Precio y subtotal por línea vienen de casos_venta_items.precio_
+// unitario (migración 0045_precio_linea_venta.sql) — el total del pie se
+// suma directo de los items, no de caso.monto, para ser autoconsistente.
 
 import jsPDF from "jspdf";
 import { Button } from "@/components/ui";
@@ -48,15 +48,22 @@ export function BotonCotizacionPDF({ caso }: { caso: CasoVentaConRelaciones }) {
 
     doc.setFontSize(11);
     doc.text("Material", margenIzq, y);
-    doc.text("Cantidad", 160, y);
+    doc.text("Cantidad", 118, y);
+    doc.text("Precio unit.", 148, y);
+    doc.text("Subtotal", 178, y);
     y += 2;
     doc.line(margenIzq, y, margenDer, y);
     y += 7;
 
     doc.setFontSize(10);
+    let total = 0;
     for (const item of caso.items) {
+      const subtotal = item.cantidad * item.precio_unitario;
+      total += subtotal;
       doc.text(item.materiales?.nombre ?? "Material eliminado", margenIzq, y);
-      doc.text(formatQty(item.cantidad, item.materiales?.unidad), 160, y);
+      doc.text(formatQty(item.cantidad, item.materiales?.unidad), 118, y);
+      doc.text(formatMoney(item.precio_unitario), 148, y);
+      doc.text(formatMoney(subtotal), 178, y);
       y += 7;
     }
 
@@ -65,7 +72,7 @@ export function BotonCotizacionPDF({ caso }: { caso: CasoVentaConRelaciones }) {
     y += 9;
 
     doc.setFontSize(13);
-    doc.text(`Total: ${formatMoney(caso.monto)}`, margenIzq, y);
+    doc.text(`Total: ${formatMoney(total)}`, margenIzq, y);
     y += 12;
 
     doc.setFontSize(9);

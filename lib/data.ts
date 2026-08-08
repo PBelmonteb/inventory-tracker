@@ -904,7 +904,7 @@ export async function getNotificaciones(): Promise<
 // tiempo. `todos: true` quita el filtro (link "Ver todos" en la UI).
 const DIAS_HISTORICO_DEFECTO = 90;
 const CASO_COMPRA_ABIERTO = ["pendiente", "cotizando", "por_autorizar", "ordenado"];
-const CASO_VENTA_ABIERTO = ["cotizacion", "confirmado", "en_produccion"];
+const CASO_VENTA_ABIERTO = ["cotizacion", "por_autorizar", "confirmado", "en_produccion"];
 
 function fechaCorteHistorico(): string {
   return new Date(Date.now() - DIAS_HISTORICO_DEFECTO * 86400000).toISOString();

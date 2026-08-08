@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getCurrentProfile, puedeGestionarVentas } from "@/lib/auth";
+import { getCurrentProfile, puedeCrearCasoVenta, puedeGestionarVentas } from "@/lib/auth";
 import { registrarEventoCasoVenta } from "@/lib/eventos-caso";
 import { getEventosCasoVenta, getDevolucionesCasoVenta } from "@/lib/data";
 import {
@@ -18,15 +18,24 @@ import {
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-// Gestionar el Portal de Clientes (crear/editar casos de venta, confirmar
-// o cancelar salidas) es tarea de gestor o ventas — operario no tiene
-// acceso a /clientes (ver app/(app)/clientes/page.tsx).
+// Gestionar el Portal de Clientes (cambiar estado de casos, confirmar o
+// cancelar salidas, gestionar clientes) es tarea de gestor o ventas.
+// Crear una cotización es más permisivo — ver requireCrearCasoVenta.
 async function requireGestorOVentas() {
   const profile = await getCurrentProfile();
   if (!profile || !puedeGestionarVentas(profile)) throw new Error("No autorizado");
 }
 
-type ItemVenta = { material_id: string; cantidad: number };
+// Operario también puede crear una cotización (sin autoridad para
+// confirmarla) — entra a "por_autorizar" en vez de "cotizacion" (ver
+// crearCasoVenta). Mismo criterio que crearSolicitudCompra del lado de
+// compras (lib/actions/solicitudes.ts).
+async function requireCrearCasoVenta() {
+  const profile = await getCurrentProfile();
+  if (!profile || !puedeCrearCasoVenta(profile)) throw new Error("No autorizado");
+}
+
+type ItemVenta = { material_id: string; cantidad: number; precio_unitario: number };
 
 function parseItems(raw: string): ItemVenta[] | null {
   try {
@@ -36,9 +45,11 @@ function parseItems(raw: string): ItemVenta[] | null {
     for (const it of parsed) {
       const material_id = String((it as ItemVenta).material_id ?? "");
       const cantidad = Number((it as ItemVenta).cantidad ?? 0);
+      const precio_unitario = Number((it as ItemVenta).precio_unitario ?? 0) || 0;
       if (!material_id || !Number.isFinite(cantidad) || cantidad <= 0)
         return null;
-      items.push({ material_id, cantidad });
+      if (precio_unitario < 0) return null;
+      items.push({ material_id, cantidad, precio_unitario });
     }
     return items;
   } catch {
@@ -50,7 +61,7 @@ export async function crearCasoVenta(
   formData: FormData
 ): Promise<ActionResult> {
   try {
-    await requireGestorOVentas();
+    await requireCrearCasoVenta();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -58,14 +69,12 @@ export async function crearCasoVenta(
   const cliente_id = String(formData.get("cliente_id") ?? "");
   const titulo = String(formData.get("titulo") ?? "").trim();
   const descripcion = String(formData.get("descripcion") ?? "").trim() || null;
-  const monto = Number(formData.get("monto") ?? 0) || 0;
   const responsable_id = String(formData.get("responsable_id") ?? "") || null;
   let referencia = String(formData.get("referencia") ?? "").trim();
   if (!referencia) referencia = `OV-${Date.now().toString().slice(-6)}`;
 
   if (!cliente_id) return { ok: false, error: "Selecciona un cliente" };
   if (!titulo) return { ok: false, error: "El título es obligatorio" };
-  if (monto < 0) return { ok: false, error: "El monto no puede ser negativo" };
 
   const items = parseItems(String(formData.get("items") ?? ""));
   if (!items)
@@ -77,11 +86,35 @@ export async function crearCasoVenta(
   const yo = await getCurrentProfile();
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
 
+  // Ruteo por rol (igual que crearSolicitudCompra del lado de compras): si
+  // quien crea el caso NO tiene autoridad sobre el Portal de Clientes
+  // (operario), entra directo a "por_autorizar" y el PRECIO se ignora — lo
+  // captura ventas/gestor al autorizar (autorizarCasoVenta). Si es
+  // gestor/ventas, sigue como hoy: "cotizacion", con el precio que capture
+  // por línea (monto ya no se captura a mano, lo deriva el trigger de la
+  // migración 0045_precio_linea_venta.sql a partir de los items).
+  const requiereAutorizacion = Boolean(yo) && !puedeGestionarVentas(yo);
+  const estadoInicial = requiereAutorizacion ? "por_autorizar" : "cotizacion";
+  // Defensa en profundidad: aunque el formulario de operario no ofrece
+  // precio, se fuerza a 0 por si alguien manda un request a mano.
+  const itemsFinales = requiereAutorizacion
+    ? items.map((it) => ({ ...it, precio_unitario: 0 }))
+    : items;
+
   if (DEMO) {
     try {
       const caso = store.crearCasoVenta(
-        { cliente_id, titulo, descripcion, monto, referencia, responsable_id },
-        items
+        {
+          cliente_id,
+          titulo,
+          descripcion,
+          referencia,
+          responsable_id,
+          estado: estadoInicial,
+          creado_por_id: actor.id,
+          creado_por_nombre: actor.nombre,
+        },
+        itemsFinales
       );
       store.registrarEventoCasoVenta(caso.id, "creado", null, actor);
     } catch (err) {
@@ -91,13 +124,21 @@ export async function crearCasoVenta(
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("casos_venta")
-      .insert({ cliente_id, titulo, descripcion, monto, referencia })
+      .insert({
+        cliente_id,
+        titulo,
+        descripcion,
+        referencia,
+        estado: estadoInicial,
+        creado_por_id: actor.id,
+        creado_por_nombre: actor.nombre,
+      })
       .select("id")
       .single();
     if (error) return { ok: false, error: mensajeSupabase(error) };
     const { error: errItems } = await supabase
       .from("casos_venta_items")
-      .insert(items.map((it) => ({ ...it, caso_venta_id: data.id })));
+      .insert(itemsFinales.map((it) => ({ ...it, caso_venta_id: data.id })));
     if (errItems) return { ok: false, error: mensajeSupabase(errItems) };
     await registrarEventoCasoVenta(supabase, data.id, "creado", null, actor);
     if (responsable_id) {
@@ -186,6 +227,12 @@ export async function cambiarEstadoCasoVenta(
 ): Promise<ActionResult> {
   if (!ESTADOS_CASO_VENTA.includes(estado))
     return { ok: false, error: "Estado inválido" };
+  // "por_autorizar"/"rechazado" nunca se ponen a mano — solo se llega ahí
+  // vía crearCasoVenta (al crear) o autorizarCasoVenta/rechazarCasoVenta
+  // (lib/actions/autorizacion-ventas.ts). El <select> libre de
+  // clientes-view.tsx tampoco los ofrece, pero se blinda aquí también.
+  if (estado === "por_autorizar" || estado === "rechazado")
+    return { ok: false, error: "Ese estado no se puede asignar directamente" };
   const yo = await getCurrentProfile();
   if (!puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
   const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
@@ -330,7 +377,10 @@ export async function obtenerEventosCasoVenta(
   return getEventosCasoVenta(casoId);
 }
 
-// Nota manual en el timeline de un caso de venta (estilo Chatter).
+// Nota manual en el timeline de un caso de venta (estilo Chatter). Además
+// de gestor/ventas, el operario que creó el caso puede agregar notas al
+// suyo mientras espera autorización (decisión de alcance del flujo de
+// autorización — ver migración 0043_autorizacion_casos_venta.sql).
 export async function agregarNotaCasoVenta(
   casoId: string,
   texto: string
@@ -339,8 +389,14 @@ export async function agregarNotaCasoVenta(
   if (!texto.trim()) return { ok: false, error: "La nota no puede estar vacía" };
 
   const yo = await getCurrentProfile();
-  if (!puedeGestionarVentas(yo)) return { ok: false, error: "No autorizado" };
-  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+  if (!yo) return { ok: false, error: "No autorizado" };
+  if (!puedeGestionarVentas(yo)) {
+    const esCreador = DEMO
+      ? store.getCasosVenta().find((c) => c.id === casoId)?.creado_por_id === yo.id
+      : await esCreadorCasoVenta(casoId, yo.id);
+    if (!esCreador) return { ok: false, error: "No autorizado" };
+  }
+  const actor: UsuarioActor = { id: yo.id, nombre: yo.nombre };
 
   if (DEMO) {
     try {
@@ -355,6 +411,16 @@ export async function agregarNotaCasoVenta(
 
   revalidatePath("/clientes");
   return { ok: true };
+}
+
+async function esCreadorCasoVenta(casoId: string, usuarioId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("casos_venta")
+    .select("creado_por_id")
+    .eq("id", casoId)
+    .single();
+  return data?.creado_por_id === usuarioId;
 }
 
 // Lectura de solo lectura, sin gate de rol — mismo criterio que
