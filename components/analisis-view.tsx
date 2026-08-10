@@ -1,20 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart3, Grid3x3, GitBranch } from "lucide-react";
+import { BarChart3, Grid3x3, GitBranch, LayoutDashboard } from "lucide-react";
 import { ReportesView } from "@/components/reportes-view";
 import { ClasificacionView } from "@/components/clasificacion-view";
 import { MRPView } from "@/components/mrp-view";
+import { KpiDashboardView } from "@/components/kpi-dashboard-view";
 import type { Reportes } from "@/lib/reportes";
 import type { MaterialClasificado, RequerimientoMRPConNombre } from "@/lib/data";
-import type { HistorialPrecio, MaterialConRelaciones } from "@/lib/types";
+import type { HistorialPrecio, MaterialConRelaciones, VistaGuardada } from "@/lib/types";
+import type { PuntoTendencia } from "@/lib/reportes-gerenciales";
+import type { TipoReporte } from "@/lib/reportes-periodo";
+import type { EstadoActualKPIs } from "@/lib/kpis-dashboard";
 
-type TabId = "reportes" | "clasificacion" | "mrp";
+type TabId = "reportes" | "clasificacion" | "mrp" | "dashboard";
 
 const TABS: { id: TabId; label: string; Icon: typeof BarChart3 }[] = [
   { id: "reportes", label: "Reportes", Icon: BarChart3 },
   { id: "clasificacion", label: "Clasificación ABC/XYZ", Icon: Grid3x3 },
   { id: "mrp", label: "MRP", Icon: GitBranch },
+  { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
 ];
 
 // Junta 3 páginas que antes vivían sueltas en el menú (Reportes,
@@ -29,6 +34,11 @@ export function AnalisisView({
   clasificacion,
   mrpRequerimientos,
   mrpMaterialesConCicloBOM,
+  tipoPeriodo,
+  tendencia,
+  estadoActualKPIs,
+  kpisActivos,
+  vistas,
   tabInicial,
 }: {
   reportes: Reportes;
@@ -38,6 +48,11 @@ export function AnalisisView({
   clasificacion: MaterialClasificado[];
   mrpRequerimientos: RequerimientoMRPConNombre[];
   mrpMaterialesConCicloBOM: string[];
+  tipoPeriodo: TipoReporte;
+  tendencia: PuntoTendencia[];
+  estadoActualKPIs: EstadoActualKPIs;
+  kpisActivos: string[];
+  vistas: VistaGuardada[];
   tabInicial?: TabId;
 }) {
   const [tab, setTab] = useState<TabId>(tabInicial ?? "reportes");
@@ -85,6 +100,15 @@ export function AnalisisView({
         <MRPView
           requerimientos={mrpRequerimientos}
           materialesConCicloBOM={mrpMaterialesConCicloBOM}
+        />
+      )}
+      {tab === "dashboard" && (
+        <KpiDashboardView
+          tipo={tipoPeriodo}
+          tendencia={tendencia}
+          estadoActual={estadoActualKPIs}
+          kpisActivos={kpisActivos}
+          vistas={vistas}
         />
       )}
     </div>

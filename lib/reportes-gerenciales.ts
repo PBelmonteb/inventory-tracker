@@ -1,19 +1,21 @@
-// Compone el "feed" de KPIs para los reportes gerenciales automáticos
-// (semanal / mensual / trimestral) — ver memoria
-// "reportes-gerenciales-ia-diseno". Puro trabajo de composición, mismo
-// patrón que lib/inicio.ts: cada pieza (getReportes,
-// getScorecardProveedores, getClasificacionABCXYZ, getCorridaMRP,
-// getCasosCompra) ya existía; esto solo las junta y les agrega el
-// recorte "qué pasó en este periodo" donde aplica — lib/reportes-periodo.ts
-// hace ese cálculo puro.
+// Compone el feed de KPIs para el dashboard gerencial (semanal / mensual /
+// trimestral / anual) — ver memoria "dashboard-kpis-gerencial". Puro
+// trabajo de composición, mismo patrón que lib/inicio.ts: cada pieza
+// (getReportes, getScorecardProveedores, getClasificacionABCXYZ,
+// getCorridaMRP, getCasosCompra, getCasosVenta) ya existía; esto solo las
+// junta y les agrega el recorte "qué pasó en este periodo" donde aplica —
+// lib/reportes-periodo.ts hace ese cálculo puro.
 //
-// Todavía NO llama a ninguna IA ni genera el PDF — eso queda pendiente de
-// que el usuario traiga la plantilla mock y decida poner la Anthropic
-// API key. Este módulo solo arma el JSON que se le pasaría.
+// Nace del plan original de reportes en PDF narrados por IA (memoria
+// "reportes-gerenciales-ia-diseno", nunca se construyó — bloqueado en una
+// plantilla que no llegó). `getKPIsPeriodo` (un solo periodo) se queda tal
+// cual por si algo más lo necesita; `getTendenciaKPIs` (abajo) es la pieza
+// nueva para el dashboard, que sí necesita varios periodos consecutivos.
 
 import { getReportes } from "@/lib/reportes";
 import {
   getCasosCompra,
+  getCasosVenta,
   getConteosAplicadosConItems,
   getScorecardProveedores,
   getClasificacionABCXYZ,
@@ -22,11 +24,14 @@ import {
 } from "@/lib/data";
 import {
   rangoPeriodo,
+  rangosPeriodo,
   resumenComprasPeriodo,
+  resumenVentasPeriodo,
   resumenConteosPeriodo,
   resumenClasificacionABCXYZ,
   type TipoReporte,
   type ResumenCompras,
+  type ResumenVentas,
   type ResumenConteos,
 } from "@/lib/reportes-periodo";
 
@@ -119,4 +124,63 @@ export async function getKPIsPeriodo(
     scorecardProveedores: scorecard,
     clasificacionABCXYZResumen: resumenClasificacionABCXYZ(clasificacion),
   };
+}
+
+export interface PuntoTendencia {
+  periodoInicio: string; // YYYY-MM-DD, inclusivo
+  periodoFin: string; // YYYY-MM-DD, exclusivo
+  compras: ResumenCompras;
+  ventas: ResumenVentas;
+  conteos: ResumenConteos;
+}
+
+/**
+ * Tendencia de `cantidad` periodos consecutivos ya completados (más
+ * antiguo primero) — para el dashboard de KPIs. A diferencia de llamar
+ * `getKPIsPeriodo` N veces, trae `casos_compra`/`casos_venta`/conteos
+ * UNA SOLA VEZ y calcula los N resúmenes localmente sobre los mismos
+ * datos — evita repetir la consulta más pesada N veces solo porque
+ * cambia el rango de fechas con el que se filtra en memoria.
+ */
+export async function getTendenciaKPIs(
+  tipo: TipoReporte,
+  cantidad: number,
+  referencia: Date = new Date()
+): Promise<PuntoTendencia[]> {
+  const rangos = rangosPeriodo(tipo, cantidad, referencia);
+
+  const [casosCompra, casosVenta, conteosAplicados] = await Promise.all([
+    getCasosCompra({ todos: true }),
+    getCasosVenta({ todos: true }),
+    getConteosAplicadosConItems(),
+  ]);
+
+  const comprasParaResumen = casosCompra.map((c) => ({
+    estado: c.estado,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+    montoEstimado: c.monto_estimado,
+  }));
+  const ventasParaResumen = casosVenta.map((c) => ({
+    estado: c.estado,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+    monto: c.monto,
+  }));
+  const conteosParaResumen = conteosAplicados.map((c) => ({
+    estado: c.estado,
+    aplicadoAt: c.aplicado_at,
+    items: c.items.map((it) => ({
+      stockEsperado: it.stock_esperado,
+      cantidadContada: it.cantidad_contada,
+    })),
+  }));
+
+  return rangos.map((rango) => ({
+    periodoInicio: formatoFecha(rango.inicio),
+    periodoFin: formatoFecha(rango.fin),
+    compras: resumenComprasPeriodo(comprasParaResumen, rango),
+    ventas: resumenVentasPeriodo(ventasParaResumen, rango),
+    conteos: resumenConteosPeriodo(conteosParaResumen, rango),
+  }));
 }

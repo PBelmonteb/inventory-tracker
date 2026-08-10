@@ -1,18 +1,19 @@
-// Cálculo puro para los reportes gerenciales automáticos (semanal /
-// mensual / trimestral) — ver memoria "reportes-gerenciales-ia-diseno".
-// Solo arma el RANGO de fechas y agrega lo que ya trae lib/data.ts en
-// crudo; no vuelve a calcular nada que ya exista (getReportes,
+// Cálculo puro para el dashboard de KPIs gerencial (semanal / mensual /
+// trimestral / anual) — ver memoria "dashboard-kpis-gerencial". Solo arma
+// el RANGO de fechas y agrega lo que ya trae lib/data.ts en crudo; no
+// vuelve a calcular nada que ya exista (getReportes,
 // getScorecardProveedores, getClasificacionABCXYZ, getCorridaMRP siguen
 // siendo la fuente — esto solo les agrega la vista "qué pasó en este
 // periodo" cuando el dato lo permite).
 //
-// La llamada a la IA y la generación del PDF NO viven aquí todavía
-// (pendiente de que el usuario traiga la plantilla y decida poner la
-// Anthropic API key) — esto es solo el "feed" de KPIs que se le pasará.
+// Nace del plan original de reportes en PDF narrados por IA (ver memoria
+// "reportes-gerenciales-ia-diseno") — se abandonó el PDF/IA a favor de un
+// dashboard interactivo en pantalla, pero este feed de KPIs por periodo
+// se reusa tal cual.
 
 import type { ClaseABC, ClaseXYZ } from "@/lib/clasificacion-abc-xyz";
 
-export type TipoReporte = "semanal" | "mensual" | "trimestral";
+export type TipoReporte = "semanal" | "mensual" | "trimestral" | "anual";
 
 export interface RangoPeriodo {
   inicio: Date; // inclusivo
@@ -40,6 +41,10 @@ function inicioMes(d: Date): Date {
 function inicioTrimestre(d: Date): Date {
   const trimestre = Math.floor(d.getMonth() / 3);
   return new Date(d.getFullYear(), trimestre * 3, 1);
+}
+
+function inicioAno(d: Date): Date {
+  return new Date(d.getFullYear(), 0, 1);
 }
 
 function enRango(iso: string, rango: RangoPeriodo): boolean {
@@ -73,14 +78,40 @@ export function rangoPeriodo(
     );
     return { inicio: inicioMesAnterior, fin: inicioMesActual };
   }
-  // trimestral
-  const inicioTrimActual = inicioTrimestre(referencia);
-  const inicioTrimAnterior = new Date(
-    inicioTrimActual.getFullYear(),
-    inicioTrimActual.getMonth() - 3,
-    1
-  );
-  return { inicio: inicioTrimAnterior, fin: inicioTrimActual };
+  if (tipo === "trimestral") {
+    const inicioTrimActual = inicioTrimestre(referencia);
+    const inicioTrimAnterior = new Date(
+      inicioTrimActual.getFullYear(),
+      inicioTrimActual.getMonth() - 3,
+      1
+    );
+    return { inicio: inicioTrimAnterior, fin: inicioTrimActual };
+  }
+  // anual
+  const inicioAnoActual = inicioAno(referencia);
+  const inicioAnoAnterior = new Date(inicioAnoActual.getFullYear() - 1, 0, 1);
+  return { inicio: inicioAnoAnterior, fin: inicioAnoActual };
+}
+
+/**
+ * `cantidad` periodos consecutivos ya completados, terminando en el más
+ * reciente respecto a `referencia` — más antiguo primero. Encadena
+ * `rangoPeriodo` hacia atrás (usa el inicio de cada rango como nueva
+ * referencia) en vez de reinventar la aritmética de calendario.
+ */
+export function rangosPeriodo(
+  tipo: TipoReporte,
+  cantidad: number,
+  referencia: Date = new Date()
+): RangoPeriodo[] {
+  const rangos: RangoPeriodo[] = [];
+  let ref = referencia;
+  for (let i = 0; i < cantidad; i++) {
+    const rango = rangoPeriodo(tipo, ref);
+    rangos.unshift(rango);
+    ref = rango.inicio;
+  }
+  return rangos;
 }
 
 /* ---------------- Compras del periodo ---------------- */
@@ -135,6 +166,56 @@ export function resumenComprasPeriodo(
     casosRechazados: rechazados.length,
     montoTotalAutorizado,
     tiempoPromedioAutorizacionHoras,
+  };
+}
+
+/* ---------------- Ventas del periodo ---------------- */
+
+export interface CasoVentaParaResumen {
+  estado: string;
+  createdAt: string;
+  updatedAt: string;
+  monto: number;
+}
+
+export interface ResumenVentas {
+  casosCreados: number;
+  casosEntregados: number;
+  casosRechazados: number;
+  montoEntregado: number;
+}
+
+// A diferencia de casos_compra (donde "ordenado"/"recibido" solo se
+// alcanzan vía autorización, nunca como estado inicial), en casos_venta
+// "cotizacion" es el estado inicial normal para la mayoría de los casos
+// (los que crea gestor/ventas directo) — filtrar por
+// estado==="cotizacion" && updated_at contaría de más cualquier edición
+// menor. "rechazado" y "entregado" sí son estados inequívocos (solo se
+// llega ahí vía una acción explícita), así que el resumen mide throughput
+// e ingresos cerrados en vez de forzar el concepto de "velocidad de
+// autorización" de compras, que en ventas solo aplica a la minoría de
+// casos creados por operario (ese detalle vive mejor en /aprobaciones,
+// en tiempo real, que en una tendencia mensual).
+export function resumenVentasPeriodo(
+  casos: CasoVentaParaResumen[],
+  rango: RangoPeriodo
+): ResumenVentas {
+  const casosCreados = casos.filter((c) => enRango(c.createdAt, rango)).length;
+
+  const entregados = casos.filter(
+    (c) => c.estado === "entregado" && enRango(c.updatedAt, rango)
+  );
+  const rechazados = casos.filter(
+    (c) => c.estado === "rechazado" && enRango(c.updatedAt, rango)
+  );
+
+  const montoEntregado = entregados.reduce((a, c) => a + c.monto, 0);
+
+  return {
+    casosCreados,
+    casosEntregados: entregados.length,
+    casosRechazados: rechazados.length,
+    montoEntregado,
   };
 }
 

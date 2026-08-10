@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   rangoPeriodo,
+  rangosPeriodo,
   resumenComprasPeriodo,
+  resumenVentasPeriodo,
   resumenConteosPeriodo,
   resumenClasificacionABCXYZ,
   type CasoCompraParaResumen,
+  type CasoVentaParaResumen,
   type ConteoParaResumen,
 } from "@/lib/reportes-periodo";
 
@@ -66,6 +69,45 @@ describe("rangoPeriodo", () => {
     expect(fechaLocal(inicio)).toBe("2025-10-01");
     expect(fechaLocal(fin)).toBe("2026-01-01");
   });
+
+  it("anual: cubre el año calendario anterior completo", () => {
+    const referencia = new Date(2026, 5, 15);
+    const { inicio, fin } = rangoPeriodo("anual", referencia);
+    expect(fechaLocal(inicio)).toBe("2025-01-01");
+    expect(fechaLocal(fin)).toBe("2026-01-01");
+  });
+});
+
+describe("rangosPeriodo", () => {
+  it("mensual: arma N periodos consecutivos, más antiguo primero, sin saltos ni duplicados", () => {
+    const referencia = new Date(2026, 7, 1); // 2026-08-01
+    const rangos = rangosPeriodo("mensual", 4, referencia);
+    expect(rangos).toHaveLength(4);
+    expect(rangos.map((r) => fechaLocal(r.inicio))).toEqual([
+      "2026-04-01",
+      "2026-05-01",
+      "2026-06-01",
+      "2026-07-01",
+    ]);
+    // Cada rango termina exactamente donde empieza el siguiente.
+    for (let i = 0; i < rangos.length - 1; i++) {
+      expect(fechaLocal(rangos[i].fin)).toBe(fechaLocal(rangos[i + 1].inicio));
+    }
+    // El último coincide con rangoPeriodo("mensual", referencia) a secas.
+    const ultimo = rangoPeriodo("mensual", referencia);
+    expect(fechaLocal(rangos[3].inicio)).toBe(fechaLocal(ultimo.inicio));
+    expect(fechaLocal(rangos[3].fin)).toBe(fechaLocal(ultimo.fin));
+  });
+
+  it("semanal: cruza de mes/año sin saltarse ninguna semana", () => {
+    const referencia = new Date(2026, 0, 20); // 2026-01-20
+    const rangos = rangosPeriodo("semanal", 3, referencia);
+    expect(rangos.map((r) => fechaLocal(r.inicio))).toEqual([
+      "2025-12-29",
+      "2026-01-05",
+      "2026-01-12",
+    ]);
+  });
 });
 
 describe("resumenComprasPeriodo", () => {
@@ -124,6 +166,49 @@ describe("resumenComprasPeriodo", () => {
   it("tiempoPromedioAutorizacionHoras es null si no hubo autorizados en el periodo", () => {
     const r = resumenComprasPeriodo([caso({ estado: "pendiente" })], rango);
     expect(r.tiempoPromedioAutorizacionHoras).toBeNull();
+  });
+});
+
+describe("resumenVentasPeriodo", () => {
+  const rango = { inicio: new Date("2026-07-06"), fin: new Date("2026-07-13") };
+
+  function caso(overrides: Partial<CasoVentaParaResumen>): CasoVentaParaResumen {
+    return {
+      estado: "entregado",
+      createdAt: "2026-07-08T00:00:00.000Z",
+      updatedAt: "2026-07-08T12:00:00.000Z",
+      monto: 1000,
+      ...overrides,
+    };
+  }
+
+  it("cuenta casos creados dentro del rango sin importar su estado final", () => {
+    const casos = [
+      caso({ estado: "cotizacion", createdAt: "2026-07-08T00:00:00.000Z" }),
+      caso({ estado: "por_autorizar", createdAt: "2026-07-09T00:00:00.000Z" }),
+      caso({ estado: "cotizacion", createdAt: "2026-06-01T00:00:00.000Z" }), // fuera de rango
+    ];
+    expect(resumenVentasPeriodo(casos, rango).casosCreados).toBe(2);
+  });
+
+  it("no cuenta 'cotizacion' normal (estado inicial) como entregado, solo estado === entregado", () => {
+    const casos = [
+      // Caso normal creado directo por gestor/ventas, sin pasar por
+      // autorización — nunca debe contarse como "entregado".
+      caso({ estado: "cotizacion", updatedAt: "2026-07-09T00:00:00.000Z" }),
+      caso({ estado: "entregado", updatedAt: "2026-07-10T00:00:00.000Z", monto: 500 }),
+    ];
+    const r = resumenVentasPeriodo(casos, rango);
+    expect(r.casosEntregados).toBe(1);
+    expect(r.montoEntregado).toBe(500);
+  });
+
+  it("cuenta rechazados por updated_at, igual que compras", () => {
+    const casos = [
+      caso({ estado: "rechazado", updatedAt: "2026-07-09T00:00:00.000Z" }),
+      caso({ estado: "rechazado", updatedAt: "2026-06-01T00:00:00.000Z" }), // fuera de rango
+    ];
+    expect(resumenVentasPeriodo(casos, rango).casosRechazados).toBe(1);
   });
 });
 
