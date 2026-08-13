@@ -6,6 +6,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     tsconfigPaths: true,
+    // "server-only" lanza un error fuera del bundling de Next.js — bajo
+    // Vitest no aplica, se sustituye por un no-op (ver tests/stubs/).
+    alias: { "server-only": "/tests/stubs/server-only.ts" },
   },
   test: {
     environment: "node",

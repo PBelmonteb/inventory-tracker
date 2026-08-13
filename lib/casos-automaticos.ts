@@ -28,9 +28,27 @@ import { evaluarRiesgoStock, type RiesgoStock } from "@/lib/riesgo-stock";
 import { esConvenioVigente } from "@/lib/convenios";
 import { construirCorreoOrdenConvenio } from "@/lib/plantillas-correo";
 import { enviarCorreo } from "@/lib/email";
+import { enviarPush } from "@/lib/push";
 import { registrarEventoCaso } from "@/lib/eventos-caso";
 import { formatearCorreoEvento } from "@/lib/email-caso";
 import type { Convenio } from "@/lib/types";
+
+function formatMXN(n: number): string {
+  return `$${n.toLocaleString("es-MX", { maximumFractionDigits: 0 })}`;
+}
+
+// Push a TODOS los perfiles (no solo a quien gestiona compras) cuando la
+// reposición automática genera algo — es un aviso de "esto pasó", no una
+// acción que alguien tenga que tomar, por eso llega a todo mundo en vez de
+// solo a compras/gestor. enviarPush ya se degrada con gracia por usuario
+// (sin suscripción activa, sin VAPID configurado, etc.) — un fallo
+// individual no debe tumbar el resto del lote.
+async function notificarPushATodos(
+  usuarioIds: string[],
+  payload: { titulo: string; cuerpo: string; url?: string }
+): Promise<void> {
+  await Promise.all(usuarioIds.map((id) => enviarPush(id, payload)));
+}
 
 const SISTEMA = { id: null, nombre: null };
 
@@ -88,6 +106,8 @@ export async function generarCasosAutomaticosPorStockBajo(
     { data: salidasRows },
     { data: recibidasRows },
     { data: conveniosRows },
+    { data: configRow },
+    { data: profilesRows },
   ] = await Promise.all([
     supabase
       .from("casos_compra")
@@ -113,7 +133,20 @@ export async function generarCasosAutomaticosPorStockBajo(
       .select("*")
       .in("material_id", materialIds)
       .eq("activo", true),
+    // Umbral admin-vs-gerente ya configurado, para que el aviso diga si esta
+    // compra queda dentro o fuera de lo que un gestor autoriza sin más.
+    supabase
+      .from("configuracion_autorizacion")
+      .select("monto_umbral_admin")
+      .eq("id", true)
+      .single(),
+    // Todos los perfiles activos: el aviso de reposición automática es para
+    // enterar, no una acción de un rol en particular -- llega a todos.
+    supabase.from("profiles").select("id"),
   ]);
+
+  const umbralAdmin = configRow?.monto_umbral_admin ?? 50000;
+  const todosLosUsuarioIds = (profilesRows ?? []).map((p: { id: string }) => p.id);
 
   const materialesConCasoAbierto = new Set(
     (abiertosRows ?? []).map((r: { material_id: string }) => r.material_id)
@@ -203,7 +236,9 @@ export async function generarCasosAutomaticosPorStockBajo(
         material,
         conveniosDelMaterial,
         riesgo,
-        proveedorInfoPorId
+        proveedorInfoPorId,
+        umbralAdmin,
+        todosLosUsuarioIds
       );
       casosCreados += creados;
       continue;
@@ -223,7 +258,16 @@ export async function generarCasosAutomaticosPorStockBajo(
     const notaConvenio = convenio
       ? ` Precio según convenio vigente: $${convenio.precio_pactado.toFixed(2)}/unidad.`
       : "";
-    const descripcionBase = `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}.${notaConvenio}`;
+    // Un convenio con auto-envío y un monto que supera el umbral de admin no
+    // se manda solo: se retiene "por_autorizar" para que un administrador lo
+    // revise ANTES de comprometer el dinero, en vez de enterarse cuando el
+    // correo ya salió. Casos sin convenio o con auto-envío desactivado no
+    // cambian -- nunca iban a mandarse solos, así que no hay nada que frenar.
+    const retenidoPorUmbral = Boolean(convenio?.auto_enviar) && montoEstimado > umbralAdmin;
+    const notaRetenido = retenidoPorUmbral
+      ? ` Supera el umbral de autorización (${formatMXN(umbralAdmin)}) — requiere aprobación de un administrador antes de comprarse, no se envió automático.`
+      : "";
+    const descripcionBase = `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}.${notaConvenio}${notaRetenido}`;
 
     const { data: caso, error } = await supabase
       .from("casos_compra")
@@ -235,7 +279,7 @@ export async function generarCasosAutomaticosPorStockBajo(
         monto_estimado: montoEstimado,
         cantidad_estimada: cantidad,
         referencia,
-        estado: "pendiente",
+        estado: retenidoPorUmbral ? "por_autorizar" : "pendiente",
         origen: "stock_bajo",
         nivel_riesgo: riesgo.nivelRiesgo,
         dias_cobertura_restante: riesgo.diasCobertura,
@@ -257,8 +301,9 @@ export async function generarCasosAutomaticosPorStockBajo(
       riesgo.nivelRiesgo
     );
 
-    if (convenio?.auto_enviar && proveedorInfo) {
-      await intentarEnvioAutomatico(supabase, {
+    let autoEnviado = false;
+    if (convenio?.auto_enviar && proveedorInfo && !retenidoPorUmbral) {
+      autoEnviado = await intentarEnvioAutomatico(supabase, {
         casoId: caso.id,
         material,
         convenio,
@@ -270,10 +315,52 @@ export async function generarCasosAutomaticosPorStockBajo(
       });
     }
 
+    await notificarPushATodos(todosLosUsuarioIds, {
+      titulo: `Reposición automática — ${material.nombre}`,
+      cuerpo: `${referencia}. ${mensajeEstadoConvenio(convenio, proveedorInfo?.nombre, autoEnviado, retenidoPorUmbral)} ${mensajeUmbral(montoEstimado, umbralAdmin, retenidoPorUmbral)}`,
+      url: "/proveedores",
+    });
+
     casosCreados++;
   }
 
   return { materialesRevisados: materiales.length, casosCreados };
+}
+
+// Explica en una frase si ya se compró solo (convenio + auto-envío exitoso),
+// si quedó retenido por superar el umbral (convenio + auto-envío, pero el
+// monto exige autorización), si tiene convenio pero necesita ojo humano
+// (auto-envío desactivado o fallido), o si no hay convenio del todo -- las
+// situaciones que alguien viendo el push necesita distinguir de un vistazo.
+function mensajeEstadoConvenio(
+  convenio: Convenio | undefined,
+  proveedorNombre: string | undefined,
+  autoEnviado: boolean,
+  retenidoPorUmbral: boolean
+): string {
+  const prov = proveedorNombre ?? "el proveedor";
+  if (!convenio) return "Sin convenio — hay que cotizar y revisar manualmente.";
+  if (!convenio.auto_enviar) return `Tiene convenio con ${prov} — revisa y confirma la orden.`;
+  if (retenidoPorUmbral)
+    return `Tiene convenio con ${prov}, pero el monto superó el umbral — no se envió automático, espera autorización.`;
+  return autoEnviado
+    ? `Comprado automáticamente por convenio con ${prov}.`
+    : `Tiene convenio con ${prov}, pero el envío automático falló — revisa el caso.`;
+}
+
+// Cuando retenidoPorUmbral es true, esto ya no es informativo -- el caso de
+// verdad quedó "por_autorizar" y sí requiere que un administrador lo
+// apruebe antes de comprarse. Para el resto (nunca iba a mandarse solo, con
+// o sin convenio), sigue siendo solo contexto: esos casos no pasan por
+// autorización hoy, sin importar el monto -- ese candado es solo para
+// casos creados por un operario.
+function mensajeUmbral(monto: number, umbral: number, retenidoPorUmbral: boolean): string {
+  if (retenidoPorUmbral) {
+    return `Monto ${formatMXN(monto)} — supera el umbral de admin (${formatMXN(umbral)}). Requiere autorización antes de comprarse.`;
+  }
+  return monto > umbral
+    ? `Monto ${formatMXN(monto)} — por encima del umbral de admin (${formatMXN(umbral)}); no requiere autorización por ser generado por el sistema, pero vale la pena revisarlo.`
+    : `Monto ${formatMXN(monto)} — dentro del umbral vigente (${formatMXN(umbral)}). No requiere autorización.`;
 }
 
 // Fan-out: un material con convenios vigentes de varios proveedores → una
@@ -284,7 +371,9 @@ async function crearSolicitudComparativa(
   material: MaterialCandidato,
   convenios: Convenio[],
   riesgo: RiesgoStock,
-  proveedorInfoPorId: Map<string, ProveedorInfo>
+  proveedorInfoPorId: Map<string, ProveedorInfo>,
+  umbralAdmin: number,
+  todosLosUsuarioIds: string[]
 ): Promise<number> {
   const codigo = `SOL-${Date.now().toString().slice(-6)}`;
   const { data: solicitud, error: errSol } = await supabase
@@ -303,13 +392,31 @@ async function crearSolicitudComparativa(
   if (errSol || !solicitud) return 0;
 
   let creados = 0;
+  let autoEnviados = 0;
+  let retenidos = 0;
+  let montoMasBarato = Infinity;
   for (const convenio of convenios) {
     const proveedorInfo = proveedorInfoPorId.get(convenio.proveedor_id);
     const cantidad = Math.max(riesgo.cantidadSugerida, convenio.cantidad_minima ?? 0);
     const precioUnitario = convenio.precio_pactado;
     const referencia = `OC-${Date.now().toString().slice(-6)}-${creados}`;
     const montoEstimado = precioUnitario * cantidad;
-    const descripcionBase = `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}. Precio según convenio vigente: $${precioUnitario.toFixed(2)}/unidad. Cotización comparativa de la solicitud ${solicitud.codigo}.`;
+    // Frena el auto-envío por monto igual que la ruta de un solo convenio,
+    // pero SIN mover el estado a "por_autorizar" -- a diferencia de esa
+    // ruta, aquí hay varias cotizaciones hermanas bajo la misma solicitud, y
+    // el RPC resolver_solicitud_compra que cancela a las perdedoras cuando
+    // se elige una ganadora solo cubre estado in
+    // ('pendiente','cotizando','ordenado'). Si esta quedara "por_autorizar"
+    // y el gestor elige OTRA cotización como ganadora, esta se quedaría
+    // huérfana para siempre (nunca se cancela, nunca se resuelve). Se queda
+    // "pendiente": la comparación de Proveedores ya obliga a que un humano
+    // la vea antes de elegir ganadora, así que el envío automático sigue
+    // frenado sin depender de ese estado.
+    const retenidoPorUmbral = Boolean(convenio.auto_enviar) && montoEstimado > umbralAdmin;
+    const notaRetenido = retenidoPorUmbral
+      ? ` Supera el umbral de autorización (${formatMXN(umbralAdmin)}) — no se envió automático, revisa antes de elegirla como ganadora.`
+      : "";
+    const descripcionBase = `${riesgo.motivo} Cantidad sugerida: ${cantidad} ${material.unidad}. Precio según convenio vigente: $${precioUnitario.toFixed(2)}/unidad. Cotización comparativa de la solicitud ${solicitud.codigo}.${notaRetenido}`;
 
     const { data: caso, error } = await supabase
       .from("casos_compra")
@@ -332,6 +439,8 @@ async function crearSolicitudComparativa(
       .single();
     if (error || !caso) continue;
     creados++;
+    if (retenidoPorUmbral) retenidos++;
+    montoMasBarato = Math.min(montoMasBarato, montoEstimado);
     await registrarEventoCaso(
       supabase,
       caso.id,
@@ -340,8 +449,8 @@ async function crearSolicitudComparativa(
       SISTEMA
     );
 
-    if (convenio.auto_enviar && proveedorInfo) {
-      await intentarEnvioAutomatico(supabase, {
+    if (convenio.auto_enviar && proveedorInfo && !retenidoPorUmbral) {
+      const enviado = await intentarEnvioAutomatico(supabase, {
         casoId: caso.id,
         material,
         convenio,
@@ -351,6 +460,7 @@ async function crearSolicitudComparativa(
         referencia,
         descripcionBase,
       });
+      if (enviado) autoEnviados++;
     }
   }
 
@@ -363,6 +473,20 @@ async function crearSolicitudComparativa(
       material.proveedor_id,
       riesgo.nivelRiesgo
     );
+
+    const resumenAuto =
+      autoEnviados > 0
+        ? `${autoEnviados} de ${creados} cotizaciones ya se compraron automático por convenio.`
+        : "Ninguna se compró automático — revisa y elige la mejor opción.";
+    const resumenRetenidos =
+      retenidos > 0
+        ? ` ${retenidos} ${retenidos === 1 ? "quedó" : "quedaron"} en espera de autorización por superar el umbral.`
+        : "";
+    await notificarPushATodos(todosLosUsuarioIds, {
+      titulo: `Reposición automática — ${material.nombre}`,
+      cuerpo: `Solicitud ${solicitud.codigo}: ${creados} cotizaciones con convenio. ${resumenAuto}${resumenRetenidos} Cotización más barata: ${formatMXN(montoMasBarato)} (umbral admin: ${formatMXN(umbralAdmin)}).`,
+      url: "/proveedores",
+    });
   }
   return creados;
 }
@@ -415,7 +539,7 @@ async function intentarEnvioAutomatico(
     referencia: string;
     descripcionBase: string;
   }
-): Promise<void> {
+): Promise<boolean> {
   const { casoId, material, convenio, proveedorInfo, cantidad, precioUnitario, referencia, descripcionBase } =
     params;
 
@@ -426,7 +550,7 @@ async function intentarEnvioAutomatico(
         descripcion: `${descripcionBase} Envío automático configurado pero el proveedor no tiene correo registrado.`,
       })
       .eq("id", casoId);
-    return;
+    return false;
   }
 
   const correo = construirCorreoOrdenConvenio({
@@ -460,12 +584,14 @@ async function intentarEnvioAutomatico(
       formatearCorreoEvento(correo.asunto, correo.cuerpo),
       SISTEMA
     );
-  } else {
-    await supabase
-      .from("casos_compra")
-      .update({
-        descripcion: `${descripcionBase} Envío automático configurado pero falló: ${envio.error} Revisar manualmente.`,
-      })
-      .eq("id", casoId);
+    return true;
   }
+
+  await supabase
+    .from("casos_compra")
+    .update({
+      descripcion: `${descripcionBase} Envío automático configurado pero falló: ${envio.error} Revisar manualmente.`,
+    })
+    .eq("id", casoId);
+  return false;
 }

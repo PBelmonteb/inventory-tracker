@@ -22,6 +22,7 @@ import type {
   Categoria,
   MaterialConRelaciones,
   Proveedor,
+  StockPorUbicacion,
   Ubicacion,
 } from "@/lib/types";
 import { Plus, Search, Pencil, AlertTriangle, Download, Save } from "lucide-react";
@@ -35,6 +36,7 @@ export function InventarioView({
   porLlegar = {},
   enTransito = {},
   consumoDiario = {},
+  stockPorUbicacion = {},
   esGestor,
 }: {
   materiales: MaterialConRelaciones[];
@@ -51,6 +53,12 @@ export function InventarioView({
   // Salidas por día, últimos 30 días, más viejo primero — para el
   // sparkline de consumo. Materiales sin salidas no traen llave.
   consumoDiario?: Record<string, number[]>;
+  // Stock real por ubicación, del ledger de movimientos (material_stock_ubicacion) —
+  // distinto de materiales.ubicacion_id, que es solo la "casa" declarada del
+  // material. Un material puede tener stock real en una ubicación distinta a
+  // su casa (ej. una entrada se registró ahí directamente); el filtro de
+  // ubicación de abajo tiene que reflejar eso, no solo el campo estático.
+  stockPorUbicacion?: Record<string, StockPorUbicacion[]>;
   esGestor: boolean;
 }) {
   const router = useRouter();
@@ -116,6 +124,24 @@ export function InventarioView({
     };
   }, [router]);
 
+  // Stock real de un material en una ubicación específica (del ledger),
+  // no su campo "casa" estático. Los materiales sin movimiento explícito
+  // por ubicación caen en la fila de respaldo que ya arma
+  // getStockPorUbicacionTodos (su casa + su stock_actual completo).
+  function stockEnUbicacion(materialId: string, ubicacionId: string): number {
+    return (
+      stockPorUbicacion[materialId]?.find((f) => f.ubicacion_id === ubicacionId)
+        ?.stock ?? 0
+    );
+  }
+
+  // Con un filtro de ubicación activo, "el stock de este material" pasa a
+  // significar "el stock de este material EN ESA ubicación" — no su total
+  // en toda la empresa. Sin filtro, sigue siendo el total (m.stock_actual).
+  function stockVisible(m: MaterialConRelaciones): number {
+    return ubiFiltro ? stockEnUbicacion(m.id, ubiFiltro) : m.stock_actual;
+  }
+
   const filtrados = useMemo(() => {
     const q = normalizarTexto(busqueda);
     const lista = materiales.filter((m) => {
@@ -126,19 +152,24 @@ export function InventarioView({
         if (!texto.includes(q)) return false;
       }
       if (catFiltro && m.categoria_id !== catFiltro) return false;
-      if (ubiFiltro && m.ubicacion_id !== ubiFiltro) return false;
+      // Antes comparaba m.ubicacion_id (la "casa" declarada del material) —
+      // un material con stock real en esta ubicación por un movimiento
+      // explícito, pero cuya casa es otra, desaparecía del filtro aunque
+      // sí hubiera piezas aquí. Ahora se filtra por stock real.
+      if (ubiFiltro && stockEnUbicacion(m.id, ubiFiltro) <= 0) return false;
       if (estadoFiltro && nivelStock(m) !== estadoFiltro) return false;
       return true;
     });
     const ordenar: Record<typeof orden, (a: MaterialConRelaciones, b: MaterialConRelaciones) => number> = {
       nombre: (a, b) => a.nombre.localeCompare(b.nombre),
-      stock_desc: (a, b) => b.stock_actual - a.stock_actual,
-      stock_asc: (a, b) => a.stock_actual - b.stock_actual,
+      stock_desc: (a, b) => stockVisible(b) - stockVisible(a),
+      stock_asc: (a, b) => stockVisible(a) - stockVisible(b),
       valor_desc: (a, b) =>
-        b.stock_actual * b.costo_unitario - a.stock_actual * a.costo_unitario,
+        stockVisible(b) * b.costo_unitario - stockVisible(a) * a.costo_unitario,
     };
     return [...lista].sort(ordenar[orden]);
-  }, [materiales, busqueda, catFiltro, ubiFiltro, estadoFiltro, orden]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [materiales, busqueda, catFiltro, ubiFiltro, estadoFiltro, orden, stockPorUbicacion]);
 
   const bajos = materiales.filter((m) => nivelStock(m) === "bajo").length;
   const valorTotal = materiales.reduce(
@@ -146,15 +177,23 @@ export function InventarioView({
     0
   );
 
+  // Nombre de ubicación a mostrar: con filtro activo, la ubicación filtrada
+  // (es la que explica el número de stock que se está mostrando); sin
+  // filtro, la casa declarada del material, como antes.
+  function ubicacionMostrada(m: MaterialConRelaciones): string {
+    if (ubiFiltro) return ubicaciones.find((u) => u.id === ubiFiltro)?.nombre ?? "—";
+    return m.ubicaciones?.nombre ?? "—";
+  }
+
   function filasInventario() {
     return filtrados.map((m) => ({
       SKU: m.sku ?? "",
       Nombre: m.nombre,
       Categoría: m.categorias?.nombre ?? "",
-      Ubicación: m.ubicaciones?.nombre ?? "",
+      Ubicación: ubicacionMostrada(m),
       Proveedor: m.proveedores?.nombre ?? "",
       Unidad: m.unidad,
-      "Stock actual": m.stock_actual,
+      "Stock actual": stockVisible(m),
       "Por llegar": porLlegar[m.id] ?? 0,
       Comprometido: comprometido[m.id] ?? 0,
       Proyectado: proyectado(m),
@@ -163,7 +202,7 @@ export function InventarioView({
       "Precio venta": m.precio_venta,
       Margen: Math.round((m.precio_venta - m.costo_unitario) * 100) / 100,
       "Valor en stock":
-        Math.round(m.stock_actual * m.costo_unitario * 100) / 100,
+        Math.round(stockVisible(m) * m.costo_unitario * 100) / 100,
     }));
   }
 
@@ -186,10 +225,10 @@ export function InventarioView({
       SKU: m.sku ?? "",
       Nombre: m.nombre,
       Categoría: m.categorias?.nombre ?? "",
-      Ubicación: m.ubicaciones?.nombre ?? "",
+      Ubicación: ubicacionMostrada(m),
       Proveedor: m.proveedores?.nombre ?? "",
       Unidad: m.unidad,
-      "Stock actual": m.stock_actual,
+      "Stock actual": stockVisible(m),
       "Por llegar": porLlegar[m.id] ?? 0,
       Comprometido: comprometido[m.id] ?? 0,
       Proyectado: proyectado(m),
@@ -197,7 +236,7 @@ export function InventarioView({
       "Costo (WAC)": m.costo_unitario,
       "Precio venta": m.precio_venta,
       Margen: Math.round((m.precio_venta - m.costo_unitario) * 100) / 100,
-      "Valor en stock": Math.round(m.stock_actual * m.costo_unitario * 100) / 100,
+      "Valor en stock": Math.round(stockVisible(m) * m.costo_unitario * 100) / 100,
     }));
     const ws = XLSX.utils.json_to_sheet(filas);
 
@@ -429,7 +468,7 @@ export function InventarioView({
                         {m.categorias?.nombre ?? "—"}
                       </td>
                       <td className="px-4 py-3 text-muted">
-                        {m.ubicaciones?.nombre ?? "—"}
+                        {ubicacionMostrada(m)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className="inline-flex items-center gap-1.5">
@@ -451,7 +490,7 @@ export function InventarioView({
                                   : "text-fg"
                             }
                           >
-                            {formatQty(m.stock_actual, m.unidad)}
+                            {formatQty(stockVisible(m), m.unidad)}
                           </span>
                         </span>
                       </td>
@@ -495,7 +534,7 @@ export function InventarioView({
                         )}
                       </td>
                       <td className="px-4 py-3 text-right text-muted">
-                        {formatMoney(m.stock_actual * m.costo_unitario)}
+                        {formatMoney(stockVisible(m) * m.costo_unitario)}
                       </td>
                       <td className="px-4 py-3">
                         {(() => {
@@ -549,7 +588,7 @@ export function InventarioView({
                       <p className="mt-0.5 text-xs text-faint">
                         {m.sku ? `${m.sku} · ` : ""}
                         {m.categorias?.nombre ?? "Sin categoría"} ·{" "}
-                        {m.ubicaciones?.nombre ?? "Sin ubicación"}
+                        {ubicacionMostrada(m)}
                       </p>
                     </Link>
                     {bajo ? (
@@ -571,7 +610,7 @@ export function InventarioView({
                               : "text-lg font-semibold text-fg"
                         }
                       >
-                        {formatQty(m.stock_actual, m.unidad)}
+                        {formatQty(stockVisible(m), m.unidad)}
                       </p>
                       {esGestor ? (
                         <label className="mt-0.5 flex items-center gap-1 text-xs text-faint">

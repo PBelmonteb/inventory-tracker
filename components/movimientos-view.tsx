@@ -124,6 +124,7 @@ export function MovimientosView({
               Tipo: m.tipo,
               Cantidad: m.cantidad,
               "Costo unitario": m.costo_unitario ?? "",
+              Ubicación: m.ubicaciones?.nombre ?? "Ubicación por defecto",
               Referencia: m.referencia ?? "",
               Usuario: m.profiles?.nombre ?? "",
               Nota: m.nota ?? "",
@@ -265,6 +266,7 @@ export function MovimientosView({
                         ? `${m.materiales?.sku ?? m.material_sku} · `
                         : ""}
                       {formatDate(m.created_at)}
+                      {` · ${m.ubicaciones?.nombre ?? "Ubicación por defecto"}`}
                       {m.referencia ? ` · ${m.referencia}` : ""}
                       {m.profiles?.nombre ? ` · ${m.profiles.nombre}` : ""}
                       {m.nota ? ` · ${m.nota}` : ""}

@@ -8,6 +8,7 @@ import {
   getMateriales,
   getPorLlegar,
   getProveedores,
+  getStockPorUbicacionTodos,
   getUbicaciones,
 } from "@/lib/data";
 
@@ -24,6 +25,7 @@ export default async function InventarioPage() {
     porLlegar,
     enTransito,
     consumoDiario,
+    stockPorUbicacion,
   ] = await Promise.all([
     getCurrentProfile(),
     getMateriales(),
@@ -34,6 +36,11 @@ export default async function InventarioPage() {
     getPorLlegar(),
     getEnTransito(),
     getConsumoDiario(30),
+    // Stock real por ubicación (del ledger de movimientos) -- distinto del
+    // ubicacion_id "casa" de cada material. Sin esto, filtrar por ubicación
+    // aquí usaba el campo estático y podía no mostrar un material con stock
+    // real ahí (ver componente: el filtro anterior comparaba m.ubicacion_id).
+    getStockPorUbicacionTodos(),
   ]);
 
   return (
@@ -46,6 +53,7 @@ export default async function InventarioPage() {
       porLlegar={porLlegar}
       enTransito={enTransito}
       consumoDiario={consumoDiario}
+      stockPorUbicacion={stockPorUbicacion}
       esGestor={esGestor(profile)}
     />
   );

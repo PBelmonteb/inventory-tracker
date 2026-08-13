@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Button, Input, Label, Select } from "@/components/ui";
@@ -46,6 +46,10 @@ export function MovimientoForm({
   const [nota, setNota] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+  // Guard síncrono contra doble clic: `cargando` (estado de React) puede
+  // no haber repintado el botón a disabled todavía cuando llega el segundo
+  // clic — un ref se lee/escribe al instante, sin esperar el repintado.
+  const enviandoRef = useRef(false);
 
   const seleccionado =
     materialFijo ?? materiales.find((m) => m.id === materialId);
@@ -67,22 +71,28 @@ export function MovimientoForm({
       ?.stock ?? 0;
 
   async function onSubmit(formData: FormData) {
+    if (enviandoRef.current) return; // segundo clic mientras el primero seguía en vuelo
+    enviandoRef.current = true;
     setError(null);
     setCargando(true);
-    formData.set("material_id", materialFijo?.id ?? materialId);
-    formData.set("tipo", tipo);
-    formData.set("ubicacion_id", ubicacionId);
-    const res = await registrarMovimiento(formData);
-    setCargando(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
+    try {
+      formData.set("material_id", materialFijo?.id ?? materialId);
+      formData.set("tipo", tipo);
+      formData.set("ubicacion_id", ubicacionId);
+      const res = await registrarMovimiento(formData);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      // Avisa a la campana que recargue (puede haber nueva alerta de stock).
+      window.dispatchEvent(new Event(NOTIF_REFRESH_EVENT));
+      router.refresh();
+      setNota("");
+      onClose();
+    } finally {
+      enviandoRef.current = false;
+      setCargando(false);
     }
-    // Avisa a la campana que recargue (puede haber nueva alerta de stock).
-    window.dispatchEvent(new Event(NOTIF_REFRESH_EVENT));
-    router.refresh();
-    setNota("");
-    onClose();
   }
 
   const MOTIVOS_AJUSTE = [
