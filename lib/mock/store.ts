@@ -2431,6 +2431,34 @@ export const store = {
   // Resend/push reales que llamar — el correo se simula con éxito siempre
   // (mismo criterio que el envío automático por convenio) y el push real
   // simplemente no aplica (la campana ya notifica).
+  enviarCasoAAutorizacion(
+    casoId: string,
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): void {
+    const c = db.casos_compra.find((x) => x.id === casoId);
+    if (!c) throw new Error("Caso de compra no encontrado");
+    if (c.estado !== "pendiente")
+      throw new Error("Solo un caso pendiente se puede mandar a autorización");
+    if (c.solicitud_id)
+      throw new Error(
+        "Esta cotización es parte de una comparación de proveedores — elige una ganadora en vez de mandarla a autorización"
+      );
+    if (!c.material_id)
+      throw new Error("El caso necesita un material antes de mandarlo a autorización");
+    if (!c.cantidad_estimada || c.cantidad_estimada <= 0)
+      throw new Error("El caso necesita una cantidad estimada antes de mandarlo a autorización");
+
+    c.estado = "por_autorizar";
+    c.updated_at = new Date().toISOString();
+
+    store.registrarEventoCaso(
+      casoId,
+      "estado_cambiado",
+      `pendiente → por_autorizar (enviado por ${actor.nombre ?? "un usuario"})`,
+      actor
+    );
+  },
+
   autorizarCasoCompra(
     casoId: string,
     cantidad: number,

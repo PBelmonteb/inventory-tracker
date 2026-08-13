@@ -12,6 +12,7 @@ import { Badge, Button, Input } from "@/components/ui";
 import { CasoTimeline } from "@/components/caso-timeline";
 import {
   elegirGanadora,
+  enviarCasoAAutorizacion,
   obtenerEventosCaso,
   obtenerSolicitudConCasos,
 } from "@/lib/actions/solicitudes";
@@ -68,6 +69,19 @@ export function CasoDetalleModal({
       cancelado = true;
     };
   }, [open, caso]);
+
+  async function enviarAAutorizacion() {
+    if (!caso) return;
+    setCargando(true);
+    const res = await enviarCasoAAutorizacion(caso.id);
+    setCargando(false);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    router.refresh();
+    onClose();
+  }
 
   async function elegir(casoGanadorId: string) {
     if (!solicitud) return;
@@ -235,7 +249,23 @@ export function CasoDetalleModal({
           onNotaAgregada={() => obtenerEventosCaso(caso.id).then(setEventos)}
         />
 
-        <div className="flex justify-end pt-2">
+        {/* Solo el operario la ve (esGestor aquí en realidad significa
+            "puede gestionar compras" — admin/gerente/compras) -- un gestor
+            ya tiene autoridad para procesar el caso directo, no necesita
+            mandarlo a autorización. Tampoco aplica a una cotización que es
+            parte de una solicitud comparativa (ver nota en la acción). */}
+        {!esGestor && caso.estado === "pendiente" && !caso.solicitud_id && (
+          <p className="rounded-lg border border-line bg-surface-2/60 px-3 py-2 text-xs text-muted">
+            Este caso todavía no se mandó a autorización.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          {!esGestor && caso.estado === "pendiente" && !caso.solicitud_id && (
+            <Button disabled={cargando} onClick={enviarAAutorizacion}>
+              Enviar a autorización
+            </Button>
+          )}
           <Button type="button" variant="secondary" onClick={onClose}>
             Cerrar
           </Button>

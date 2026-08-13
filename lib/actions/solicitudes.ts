@@ -30,6 +30,70 @@ export async function obtenerSolicitudConCasos(
   return getSolicitudConCasos(solicitudId);
 }
 
+// Manda a autorización un caso "pendiente" que ya existía sin ese ruteo
+// automático -- por ejemplo uno que un gestor creó sin monto, o uno de
+// reposición automática que no calificó para el freno por convenio
+// (lib/casos-automaticos.ts). Exige lo mismo que crearSolicitudCompra exige
+// al crear con ese ruteo: material y cantidad.
+//
+// No aplica a cotizaciones de una solicitud comparativa (caso.solicitud_id):
+// resolver_solicitud_compra (el RPC que cancela a las cotizaciones perdedoras
+// al elegir ganadora) solo cubre estado in ('pendiente','cotizando','ordenado')
+// -- una cotización "por_autorizar" ahí se quedaría huérfana si se elige otra
+// como ganadora, nunca se cancela ni se resuelve.
+export async function enviarCasoAAutorizacion(casoId: string): Promise<ActionResult> {
+  if (!casoId) return { ok: false, error: "Caso inválido" };
+  const yo = await getCurrentProfile();
+  const actor: UsuarioActor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+
+  if (DEMO) {
+    try {
+      store.enviarCasoAAutorizacion(casoId, actor);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+    revalidatePath("/proveedores");
+    return { ok: true };
+  }
+
+  const supabase = await createClient();
+  const { data: caso, error: errCaso } = await supabase
+    .from("casos_compra")
+    .select("id, estado, solicitud_id, material_id, cantidad_estimada")
+    .eq("id", casoId)
+    .single();
+  if (errCaso || !caso) return { ok: false, error: "Caso no encontrado" };
+  if (caso.estado !== "pendiente")
+    return { ok: false, error: "Solo un caso pendiente se puede mandar a autorización" };
+  if (caso.solicitud_id)
+    return {
+      ok: false,
+      error:
+        "Esta cotización es parte de una comparación de proveedores — elige una ganadora en vez de mandarla a autorización",
+    };
+  if (!caso.material_id)
+    return { ok: false, error: "El caso necesita un material antes de mandarlo a autorización" };
+  if (!caso.cantidad_estimada || caso.cantidad_estimada <= 0)
+    return { ok: false, error: "El caso necesita una cantidad estimada antes de mandarlo a autorización" };
+
+  const { error } = await supabase
+    .from("casos_compra")
+    .update({ estado: "por_autorizar", updated_at: new Date().toISOString() })
+    .eq("id", casoId);
+  if (error) return { ok: false, error: mensajeSupabase(error) };
+
+  await registrarEventoCaso(
+    supabase,
+    casoId,
+    "estado_cambiado",
+    `pendiente → por_autorizar (enviado por ${actor.nombre ?? "un usuario"})`,
+    actor
+  );
+
+  revalidatePath("/proveedores");
+  return { ok: true };
+}
+
 // Con un solo proveedor, se comporta exactamente igual que crearCasoCompra
 // (un caso suelto, sin solicitud). Con más de uno, agrupa una cotización
 // por proveedor bajo una solicitud nueva con su propio código — para poder
