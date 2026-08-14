@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Button, Input, Label } from "@/components/ui";
-import { autorizarCasoCompra, rechazarCasoCompra } from "@/lib/actions/autorizacion";
+import {
+  autorizarCasoCompra,
+  obtenerContactoProveedor,
+  rechazarCasoCompra,
+} from "@/lib/actions/autorizacion";
+import { construirCorreoOrdenAutorizada } from "@/lib/plantillas-correo";
 import { formatDate } from "@/lib/utils";
 import type { CasoCompraConRelaciones } from "@/lib/types";
 import { CheckCircle2, XCircle } from "lucide-react";
@@ -35,6 +40,15 @@ export function AutorizarCasoForm({
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
 
+  // Vista previa editable del correo que se manda al autorizar (solo si el
+  // proveedor tiene contacto registrado -- si no, autorizarCasoCompra ni
+  // intenta mandar nada, igual que antes). "tocado" evita que se le pise
+  // encima al gestor lo que ya editó a mano cada vez que ajusta cantidad/monto.
+  const [proveedorEmail, setProveedorEmail] = useState<string | null>(null);
+  const [asuntoCorreo, setAsuntoCorreo] = useState("");
+  const [cuerpoCorreo, setCuerpoCorreo] = useState("");
+  const [correoTocado, setCorreoTocado] = useState(false);
+
   const montoNumActual = Number(monto) || 0;
   const bloqueadoPorUmbral = !esAdmin && montoNumActual > umbralAdmin;
 
@@ -44,7 +58,33 @@ export function AutorizarCasoForm({
     setRechazando(false);
     setMotivo("");
     setError(null);
-  }, [caso?.id]);
+    setCorreoTocado(false);
+    setProveedorEmail(null);
+    if (caso?.proveedor_id) {
+      obtenerContactoProveedor(caso.proveedor_id).then(setProveedorEmail);
+    }
+  }, [caso?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Recalcula la vista previa mientras el gestor no la haya editado a mano
+  // -- así siempre refleja la cantidad/monto que acaba de capturar arriba.
+  useEffect(() => {
+    if (!caso || correoTocado) return;
+    const cantidadNum = Number(cantidad) || 0;
+    const montoNum = Number(monto) || 0;
+    const correo = construirCorreoOrdenAutorizada({
+      material: {
+        nombre: caso.materiales?.nombre ?? caso.titulo,
+        sku: caso.materiales?.sku ?? null,
+        unidad: caso.materiales?.unidad ?? "",
+      },
+      proveedorNombre: caso.proveedores?.nombre ?? caso.proveedor_nombre ?? null,
+      cantidad: cantidadNum,
+      precioUnitario: cantidadNum > 0 ? montoNum / cantidadNum : 0,
+      referencia: caso.referencia ?? `OC-${Date.now().toString().slice(-6)}`,
+    });
+    setAsuntoCorreo(correo.asunto);
+    setCuerpoCorreo(correo.cuerpo);
+  }, [caso, cantidad, monto, correoTocado]);
 
   async function autorizar() {
     if (!caso) return;
@@ -60,7 +100,12 @@ export function AutorizarCasoForm({
     }
     setError(null);
     setCargando(true);
-    const res = await autorizarCasoCompra(caso.id, cantidadNum, montoNum);
+    const res = await autorizarCasoCompra(
+      caso.id,
+      cantidadNum,
+      montoNum,
+      proveedorEmail ? { asunto: asuntoCorreo, cuerpo: cuerpoCorreo } : null
+    );
     setCargando(false);
     if (!res.ok) {
       setError(res.error);
@@ -126,6 +171,47 @@ export function AutorizarCasoForm({
                   onChange={(e) => setMonto(e.target.value)}
                 />
               </div>
+
+              {proveedorEmail && (
+                <div className="space-y-2 rounded-lg border border-line p-3">
+                  <p className="text-xs font-medium text-fg">
+                    Correo que se manda a {proveedorEmail} al autorizar
+                  </p>
+                  <div>
+                    <Label htmlFor="ac-correo-asunto">Asunto</Label>
+                    <Input
+                      id="ac-correo-asunto"
+                      value={asuntoCorreo}
+                      onChange={(e) => {
+                        setAsuntoCorreo(e.target.value);
+                        setCorreoTocado(true);
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="ac-correo-cuerpo">Mensaje</Label>
+                    <textarea
+                      id="ac-correo-cuerpo"
+                      value={cuerpoCorreo}
+                      onChange={(e) => {
+                        setCuerpoCorreo(e.target.value);
+                        setCorreoTocado(true);
+                      }}
+                      rows={8}
+                      className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg placeholder:text-faint outline-none transition-colors focus:border-accent focus:ring-2 focus:ring-accent/20"
+                    />
+                  </div>
+                  {correoTocado && (
+                    <button
+                      type="button"
+                      className="cursor-pointer text-xs text-accent hover:underline"
+                      onClick={() => setCorreoTocado(false)}
+                    >
+                      Regenerar con la cantidad/monto actuales
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <div>

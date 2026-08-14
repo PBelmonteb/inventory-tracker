@@ -30,6 +30,28 @@ export async function obtenerSolicitudConCasos(
   return getSolicitudConCasos(solicitudId);
 }
 
+const CASO_COMPRA_ABIERTO_CARGA = ["pendiente", "cotizando", "por_autorizar", "ordenado"];
+
+// Cuántos casos abiertos tiene cada quien ahora mismo -- para sugerir un
+// responsable al crear un caso (a quien tenga menos carga) en vez de dejarlo
+// siempre en "Sin asignar" hasta que alguien lo elija a mano.
+export async function obtenerCargaResponsables(): Promise<Record<string, number>> {
+  if (DEMO) return store.obtenerCargaResponsables();
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("casos_compra")
+    .select("responsable_id")
+    .in("estado", CASO_COMPRA_ABIERTO_CARGA)
+    .not("responsable_id", "is", null);
+
+  const carga: Record<string, number> = {};
+  for (const row of (data ?? []) as { responsable_id: string }[]) {
+    carga[row.responsable_id] = (carga[row.responsable_id] ?? 0) + 1;
+  }
+  return carga;
+}
+
 // Manda a autorización un caso "pendiente" que ya existía sin ese ruteo
 // automático -- por ejemplo uno que un gestor creó sin monto, o uno de
 // reposición automática que no calificó para el freno por convenio

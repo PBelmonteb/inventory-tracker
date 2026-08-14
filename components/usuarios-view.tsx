@@ -6,15 +6,17 @@ import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import {
+  aprobarCuenta,
   cambiarEstadoUsuario,
   cambiarRolUsuario,
   crearUsuario,
+  rechazarCuenta,
   type UsuarioListado,
 } from "@/lib/actions/usuarios";
 import { guardarUmbralAutorizacion } from "@/lib/actions/autorizacion";
 import { formatDate, formatMoney } from "@/lib/utils";
 import type { Rol } from "@/lib/types";
-import { Eye, EyeOff, Plus, Save, ShieldCheck, Wand2 } from "lucide-react";
+import { CheckCircle2, Eye, EyeOff, Plus, Save, ShieldCheck, UserPlus, Wand2, XCircle } from "lucide-react";
 
 const ROL_LABEL: Record<Rol, string> = {
   admin: "Admin",
@@ -57,6 +59,12 @@ export function UsuariosView({
   const [formOpen, setFormOpen] = useState(false);
   const [cambiando, setCambiando] = useState<string | null>(null);
   const [errorFila, setErrorFila] = useState<Record<string, string>>({});
+
+  // Las cuentas de auto-registro sin revisar se muestran aparte, arriba de
+  // todo -- son la acción pendiente más urgente de esta pantalla. El resto
+  // (aprobadas y rechazadas) sigue en la lista normal de siempre.
+  const pendientes = usuarios.filter((u) => u.estado_cuenta === "pendiente");
+  const resto = usuarios.filter((u) => u.estado_cuenta !== "pendiente");
 
   async function onCambiarRol(id: string, rol: Rol) {
     setCambiando(id);
@@ -116,16 +124,20 @@ export function UsuariosView({
         </Card>
       )}
 
+      {pendientes.length > 0 && (
+        <CuentasPendientesCard pendientes={pendientes} />
+      )}
+
       {esAdmin && <UmbralAutorizacionCard umbralInicial={umbralInicial} />}
 
       <Card className="overflow-hidden">
-        {usuarios.length === 0 && !errorInicial ? (
+        {resto.length === 0 && !errorInicial ? (
           <p className="p-10 text-center text-sm text-muted">
             Sin usuarios todavía.
           </p>
         ) : (
           <ul className="divide-y divide-line">
-            {usuarios.map((u) => {
+            {resto.map((u) => {
               const esYo = u.id === miId;
               return (
                 <li key={u.id} className="p-4">
@@ -137,6 +149,9 @@ export function UsuariosView({
                         <Badge tone={u.activo ? "ok" : "danger"}>
                           {u.activo ? "Activo" : "Inactivo"}
                         </Badge>
+                        {u.estado_cuenta === "rechazada" && (
+                          <Badge tone="danger">Cuenta rechazada</Badge>
+                        )}
                       </p>
                       <p className="text-xs text-faint">
                         {u.email ?? "—"} · Alta {formatDate(u.created_at)}
@@ -189,6 +204,101 @@ export function UsuariosView({
 
       <NuevoUsuarioForm open={formOpen} onClose={() => setFormOpen(false)} />
     </div>
+  );
+}
+
+// Cuentas de auto-registro esperando revisión (ver /registro y
+// app/(app)/layout.tsx, que las bloquea hasta que estado_cuenta pase a
+// "aprobada"). Aprobar pide elegir el rol de una vez -- no tiene caso
+// aprobar y luego obligar a un segundo paso solo para eso.
+function CuentasPendientesCard({ pendientes }: { pendientes: UsuarioListado[] }) {
+  const router = useRouter();
+  const [rolElegido, setRolElegido] = useState<Record<string, Rol>>({});
+  const [procesando, setProcesando] = useState<string | null>(null);
+  const [errorFila, setErrorFila] = useState<Record<string, string>>({});
+
+  async function aprobar(u: UsuarioListado) {
+    setProcesando(u.id);
+    setErrorFila((e) => ({ ...e, [u.id]: "" }));
+    const res = await aprobarCuenta(u.id, rolElegido[u.id] ?? "operario");
+    setProcesando(null);
+    if (!res.ok) {
+      setErrorFila((e) => ({ ...e, [u.id]: res.error }));
+      return;
+    }
+    router.refresh();
+  }
+
+  async function rechazar(u: UsuarioListado) {
+    if (!window.confirm(`¿Rechazar la cuenta de ${u.nombre}? No podrá entrar.`)) return;
+    setProcesando(u.id);
+    setErrorFila((e) => ({ ...e, [u.id]: "" }));
+    const res = await rechazarCuenta(u.id);
+    setProcesando(null);
+    if (!res.ok) {
+      setErrorFila((e) => ({ ...e, [u.id]: res.error }));
+      return;
+    }
+    router.refresh();
+  }
+
+  return (
+    <Card className="mb-4 overflow-hidden border-accent/30">
+      <div className="flex items-center gap-2 border-b border-line bg-accent/5 px-4 py-3">
+        <UserPlus className="h-4 w-4 text-accent" />
+        <h2 className="font-semibold text-fg">
+          Cuentas por aprobar ({pendientes.length})
+        </h2>
+      </div>
+      <ul className="divide-y divide-line">
+        {pendientes.map((u) => (
+          <li key={u.id} className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium text-fg">{u.nombre}</p>
+                <p className="text-xs text-faint">
+                  {u.email ?? "—"} · Pidió acceso {formatDate(u.created_at)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={rolElegido[u.id] ?? "operario"}
+                  disabled={procesando === u.id}
+                  onChange={(e) =>
+                    setRolElegido((r) => ({ ...r, [u.id]: e.target.value as Rol }))
+                  }
+                  className="w-auto"
+                  aria-label={`Rol de ${u.nombre}`}
+                >
+                  {(Object.keys(ROL_LABEL) as Rol[]).map((r) => (
+                    <option key={r} value={r}>
+                      {ROL_LABEL[r]}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  type="button"
+                  variant="danger"
+                  disabled={procesando === u.id}
+                  onClick={() => rechazar(u)}
+                >
+                  <XCircle className="h-4 w-4" /> Rechazar
+                </Button>
+                <Button disabled={procesando === u.id} onClick={() => aprobar(u)}>
+                  <CheckCircle2 className="h-4 w-4" />
+                  {procesando === u.id ? "..." : "Aprobar"}
+                </Button>
+              </div>
+            </div>
+            {errorFila[u.id] && (
+              <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                {errorFila[u.id]}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 

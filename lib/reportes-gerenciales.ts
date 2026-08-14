@@ -48,7 +48,7 @@ export interface KPIsPeriodo {
   periodoFin: string; // YYYY-MM-DD, exclusivo
   inventario: {
     valorTotal: number;
-    valorParado: number;
+    valorEnvejecido: number;
     materialesStockBajo: number;
     totalMateriales: number;
   };
@@ -114,7 +114,7 @@ export async function getKPIsPeriodo(
     periodoFin: formatoFecha(rango.fin),
     inventario: {
       valorTotal: reportes.valorTotal,
-      valorParado: reportes.valorParado,
+      valorEnvejecido: reportes.valorEnvejecido,
       materialesStockBajo: reportes.comprarAhora.length,
       totalMateriales: reportes.totalMateriales,
     },

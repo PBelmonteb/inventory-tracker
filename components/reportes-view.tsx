@@ -35,12 +35,17 @@ export function ReportesView({
   const {
     valorTotal,
     comprarAhora,
-    dineroParado,
-    valorParado,
+    edadInventario,
+    materialesEnvejecidos,
+    valorEnvejecido,
     porCategoria,
     porUbicacion,
     margenes,
   } = reportes;
+
+  // Un color por franja, de más nuevo a más viejo -- mismo criterio de
+  // severidad que ya usa el resto de la app (rojo = requiere atención).
+  const COLOR_FRANJA = ["bg-fg", "bg-faint", "bg-amber-500", "bg-red-500"];
 
   return (
     <div className="mx-auto max-w-7xl space-y-5">
@@ -65,8 +70,8 @@ export function ReportesView({
         />
         <Kpi
           icon={<Snowflake className="h-5 w-5" />}
-          label="Dinero parado"
-          value={formatMoney(valorParado)}
+          label="Inventario envejecido (>90 días)"
+          value={formatMoney(valorEnvejecido)}
           tone="danger"
         />
       </div>
@@ -237,35 +242,64 @@ export function ReportesView({
         </Card>
       )}
 
-      {/* Dinero parado — el reporte estrella */}
+      {/* Edad de inventario — el reporte estrella (reemplaza "dinero parado") */}
       <Card className="p-5">
         <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Snowflake className="h-5 w-5 text-red-500" />
-            <h2 className="font-semibold text-fg">Dinero parado</h2>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-faint">
+              Antigüedad a costo
+            </p>
+            <h2 className="font-semibold text-fg">Edad del inventario</h2>
           </div>
+          <span className="shrink-0 rounded-full border border-line bg-surface-2 px-3 py-1 text-sm font-medium text-fg">
+            {formatMoney(valorTotal)} total
+          </span>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          {edadInventario.map((r, i) => (
+            <div key={r.rango}>
+              <div className="mb-1.5 flex items-baseline justify-between gap-2 text-sm">
+                <span className="font-medium text-fg">{r.rango}</span>
+                <span className="text-muted">
+                  {formatMoney(r.valor)} · {r.pct.toFixed(0)}%
+                </span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className={`h-full rounded-full ${COLOR_FRANJA[i]}`}
+                  style={{ width: `${Math.min(100, r.pct)}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-5 flex items-center justify-between gap-2 border-t border-line pt-4">
+          <p className="text-sm text-muted">
+            Material con stock, sin consumo en {diasParado}+ días (o sin
+            entrada reciente si nunca se ha consumido). Antes de comprar,
+            revisa si ya lo tienes aquí.
+          </p>
           <BotonExportarCSV
-            filename="dinero-parado"
-            filas={dineroParado.map((m) => ({
+            filename="inventario-envejecido"
+            filas={materialesEnvejecidos.map((m) => ({
               Material: m.nombre,
               SKU: m.sku ?? "",
               Categoría: m.categorias?.nombre ?? "",
               Ubicación: m.ubicaciones?.nombre ?? "",
               Stock: m.stock_actual,
               "Días sin consumo": m.diasSinConsumo ?? "",
+              "Días de edad (estimado)": m.diasEdad ?? "",
               Valor: m.valor,
             }))}
             label="CSV"
           />
         </div>
-        <p className="mb-4 text-sm text-muted">
-          Material con stock pero sin consumo en {diasParado}+ días. Antes de
-          comprar, revisa si ya lo tienes aquí.
-        </p>
         <TablaMateriales
-          items={dineroParado}
+          items={materialesEnvejecidos}
           columnaExtra="diasSinConsumo"
-          vacio="No hay material parado."
+          vacio="No hay material envejecido."
         />
       </Card>
 

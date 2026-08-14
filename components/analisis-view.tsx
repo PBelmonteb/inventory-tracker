@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart3, Grid3x3, GitBranch, LayoutDashboard } from "lucide-react";
+import { BarChart3, Grid3x3, GitBranch, LayoutDashboard, Sparkles } from "lucide-react";
 import { ReportesView } from "@/components/reportes-view";
 import { ClasificacionView } from "@/components/clasificacion-view";
 import { MRPView } from "@/components/mrp-view";
 import { KpiDashboardView } from "@/components/kpi-dashboard-view";
+import { AiInsightsView } from "@/components/ai-insights-view";
 import type { Reportes } from "@/lib/reportes";
 import type { MaterialClasificado, RequerimientoMRPConNombre } from "@/lib/data";
 import type { HistorialPrecio, MaterialConRelaciones, VistaGuardada } from "@/lib/types";
@@ -13,13 +14,14 @@ import type { PuntoTendencia } from "@/lib/reportes-gerenciales";
 import type { TipoReporte } from "@/lib/reportes-periodo";
 import type { EstadoActualKPIs } from "@/lib/kpis-dashboard";
 
-type TabId = "reportes" | "clasificacion" | "mrp" | "dashboard";
+type TabId = "reportes" | "clasificacion" | "mrp" | "dashboard" | "ai-insights";
 
 const TABS: { id: TabId; label: string; Icon: typeof BarChart3 }[] = [
   { id: "reportes", label: "Reportes", Icon: BarChart3 },
   { id: "clasificacion", label: "Clasificación ABC/XYZ", Icon: Grid3x3 },
   { id: "mrp", label: "MRP", Icon: GitBranch },
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
+  { id: "ai-insights", label: "AI Insights", Icon: Sparkles },
 ];
 
 // Junta 3 páginas que antes vivían sueltas en el menú (Reportes,
@@ -40,6 +42,7 @@ export function AnalisisView({
   kpisActivos,
   vistas,
   tabInicial,
+  aiInsightsConfigurado,
 }: {
   reportes: Reportes;
   diasParado: number;
@@ -54,6 +57,7 @@ export function AnalisisView({
   kpisActivos: string[];
   vistas: VistaGuardada[];
   tabInicial?: TabId;
+  aiInsightsConfigurado: boolean;
 }) {
   const [tab, setTab] = useState<TabId>(tabInicial ?? "reportes");
 
@@ -110,6 +114,9 @@ export function AnalisisView({
           kpisActivos={kpisActivos}
           vistas={vistas}
         />
+      )}
+      {tab === "ai-insights" && (
+        <AiInsightsView configurado={aiInsightsConfigurado} />
       )}
     </div>
   );

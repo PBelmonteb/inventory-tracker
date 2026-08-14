@@ -33,6 +33,23 @@ export async function obtenerConfiguracionAutorizacion(): Promise<ConfiguracionA
   return getConfiguracionAutorizacion();
 }
 
+// Para armar la vista previa editable del correo en AutorizarCasoForm antes
+// de autorizar -- de solo lectura, sin gate de rol (mismo criterio que el
+// resto de /proveedores).
+export async function obtenerContactoProveedor(
+  proveedorId: string | null
+): Promise<string | null> {
+  if (!proveedorId) return null;
+  if (DEMO) return store.obtenerContactoProveedor(proveedorId);
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("proveedores")
+    .select("contacto")
+    .eq("id", proveedorId)
+    .maybeSingle();
+  return data?.contacto ?? null;
+}
+
 // Solo admin (no gerente) puede cambiar el umbral — mismo candado que la
 // policy de RLS (0026_conteo_ciclico.sql: configuracion_autorizacion_update).
 export async function guardarUmbralAutorizacion(monto: number): Promise<ActionResult> {
@@ -71,7 +88,11 @@ export async function guardarUmbralAutorizacion(monto: number): Promise<ActionRe
 export async function autorizarCasoCompra(
   casoId: string,
   cantidad: number,
-  monto: number
+  monto: number,
+  // Si el gestor editó el asunto/cuerpo en la vista previa del formulario,
+  // se manda tal cual en vez de regenerarlo del lado del servidor -- así lo
+  // que se ve en pantalla es exactamente lo que le llega al proveedor.
+  correoEditado?: { asunto: string; cuerpo: string } | null
 ): Promise<ActionResult> {
   await requireGestorOCompras();
   if (!Number.isFinite(cantidad) || cantidad <= 0)
@@ -98,7 +119,7 @@ export async function autorizarCasoCompra(
 
   if (DEMO) {
     try {
-      store.autorizarCasoCompra(casoId, cantidad, monto, actor);
+      store.autorizarCasoCompra(casoId, cantidad, monto, actor, correoEditado ?? null);
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : "Error" };
     }
@@ -125,13 +146,17 @@ export async function autorizarCasoCompra(
   let correoEnviadoAt: string | null = null;
   let notaCorreo = "";
   if (material && proveedor?.contacto) {
-    const correo = construirCorreoOrdenAutorizada({
-      material: { nombre: material.nombre, sku: material.sku, unidad: material.unidad },
-      proveedorNombre: proveedor.nombre ?? null,
-      cantidad,
-      precioUnitario: cantidad > 0 ? monto / cantidad : 0,
-      referencia,
-    });
+    // Si el gestor editó la vista previa, se respeta tal cual -- nunca se
+    // regenera por encima de lo que ya revisó y ajustó.
+    const correo =
+      correoEditado ??
+      construirCorreoOrdenAutorizada({
+        material: { nombre: material.nombre, sku: material.sku, unidad: material.unidad },
+        proveedorNombre: proveedor.nombre ?? null,
+        cantidad,
+        precioUnitario: cantidad > 0 ? monto / cantidad : 0,
+        referencia,
+      });
     const resultado = await enviarCorreo({
       to: proveedor.contacto,
       subject: correo.asunto,

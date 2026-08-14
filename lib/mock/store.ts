@@ -575,6 +575,19 @@ export const store = {
       }));
   },
 
+  // Mismo criterio que getSalidas -- para la edad de inventario: cuando un
+  // material nunca se ha consumido, su edad se cuenta desde su última
+  // entrada en vez de tratarlo como "envejecido" por default.
+  getEntradas(): { material_id: string; created_at: string }[] {
+    return db.movimientos
+      .filter((mv) => mv.tipo === "entrada" && mv.material_id !== null)
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      .map((mv) => ({
+        material_id: mv.material_id as string,
+        created_at: mv.created_at,
+      }));
+  },
+
   getCategorias: () =>
     [...db.categorias].sort((a, b) => a.nombre.localeCompare(b.nombre)),
   getUbicaciones: () =>
@@ -2262,6 +2275,16 @@ export const store = {
     return { ...s, casos };
   },
 
+  obtenerCargaResponsables(): Record<string, number> {
+    const abiertos = ["pendiente", "cotizando", "por_autorizar", "ordenado"];
+    const carga: Record<string, number> = {};
+    for (const c of db.casos_compra) {
+      if (!c.responsable_id || !abiertos.includes(c.estado)) continue;
+      carga[c.responsable_id] = (carga[c.responsable_id] ?? 0) + 1;
+    }
+    return carga;
+  },
+
   // Si viene un solo proveedor, se comporta exactamente igual que hoy (un
   // caso suelto, sin solicitud). Con más de uno, agrupa una cotización por
   // proveedor bajo una solicitud nueva con su propio código.
@@ -2459,11 +2482,16 @@ export const store = {
     );
   },
 
+  obtenerContactoProveedor(proveedorId: string): string | null {
+    return db.proveedores.find((p) => p.id === proveedorId)?.contacto ?? null;
+  },
+
   autorizarCasoCompra(
     casoId: string,
     cantidad: number,
     monto: number,
-    actor: UsuarioActor = { id: null, nombre: null }
+    actor: UsuarioActor = { id: null, nombre: null },
+    correoEditado: { asunto: string; cuerpo: string } | null = null
   ): void {
     const c = db.casos_compra.find((x) => x.id === casoId);
     if (!c) throw new Error("Caso de compra no encontrado");
@@ -2479,13 +2507,15 @@ export const store = {
     c.estado = "ordenado";
 
     if (mat && prov?.contacto) {
-      const correo = construirCorreoOrdenAutorizada({
-        material: { nombre: mat.nombre, sku: mat.sku, unidad: mat.unidad },
-        proveedorNombre: prov.nombre,
-        cantidad,
-        precioUnitario: cantidad > 0 ? monto / cantidad : 0,
-        referencia,
-      });
+      const correo =
+        correoEditado ??
+        construirCorreoOrdenAutorizada({
+          material: { nombre: mat.nombre, sku: mat.sku, unidad: mat.unidad },
+          proveedorNombre: prov.nombre,
+          cantidad,
+          precioUnitario: cantidad > 0 ? monto / cantidad : 0,
+          referencia,
+        });
       c.correo_enviado_at = new Date().toISOString();
       c.descripcion = `${c.descripcion ?? ""} Orden autorizada y enviada (simulado en modo demo).`.trim();
       store.registrarEventoCaso(

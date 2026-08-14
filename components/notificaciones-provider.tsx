@@ -18,7 +18,7 @@ import type {
   NivelNotificacion,
   TipoNotificacion,
 } from "@/lib/types";
-import { X, AlertTriangle, PackageX, UserCheck } from "lucide-react";
+import { X, AlertTriangle, PackageX, UserCheck, UserPlus } from "lucide-react";
 
 // Evento que dispara cualquier acción que mueva el stock (movimientos) o
 // asigne un responsable, para que las notificaciones se actualicen al
@@ -55,8 +55,16 @@ const META_ASIGNACION = {
   label: "Asignación",
 } as const;
 
+const META_CUENTA_PENDIENTE = {
+  Icon: UserPlus,
+  dot: "bg-accent",
+  text: "text-accent",
+  label: "Cuenta pendiente",
+} as const;
+
 function metaDe(t: Pick<Toast, "tipo" | "nivel">) {
   if (t.tipo === "asignacion") return META_ASIGNACION;
+  if (t.tipo === "cuenta_pendiente") return META_CUENTA_PENDIENTE;
   return NIVEL_TOAST[t.nivel ?? "bajo"];
 }
 

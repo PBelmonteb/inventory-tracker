@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import { getEOQ, getStockSugerido } from "@/lib/data";
+import { getEOQ, getStockSugerido, getStockSugeridoTodos } from "@/lib/data";
 import type { StockSugerido } from "@/lib/stock-sugerido";
 import type { ResultadoEOQ } from "@/lib/eoq";
 
@@ -20,6 +20,14 @@ export async function obtenerStockSugerido(
   materialId: string
 ): Promise<StockSugerido> {
   return getStockSugerido(materialId);
+}
+
+// Para el botón "Aplicar sugeridos" de Inventario -- todo el catálogo de
+// una vez, en lugar de abrir material por material.
+export async function obtenerStockSugeridoTodos(): Promise<
+  Record<string, StockSugerido>
+> {
+  return getStockSugeridoTodos();
 }
 
 export async function obtenerEOQ(

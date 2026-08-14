@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { Button, Card, Input, Label } from "@/components/ui";
 import { Boxes, Eye, EyeOff } from "lucide-react";
 
-// Sin auto-registro: las cuentas las da de alta un gestor desde /usuarios.
+// Auto-registro reabierto (con filtro de aprobación de un gestor) — ver
+// app/(auth)/registro/page.tsx y lib/actions/registro.ts.
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -105,7 +107,11 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-4 text-center text-xs text-faint">
-          ¿Necesitas una cuenta? Pídele a tu gestor que te dé de alta.
+          ¿Necesitas una cuenta?{" "}
+          <Link href="/registro" className="font-medium text-accent hover:underline">
+            Pídela aquí
+          </Link>{" "}
+          — un gestor tiene que aprobarla.
         </p>
       </Card>
     </div>

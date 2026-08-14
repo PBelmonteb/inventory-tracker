@@ -46,7 +46,7 @@ const TIPOS: { id: TipoReporte; label: string }[] = [
 
 const ICONO_ACTUAL: Record<string, React.ReactNode> = {
   valorInventario: <Wallet className="h-5 w-5" />,
-  valorParado: <Wallet className="h-5 w-5" />,
+  valorEnvejecido: <Wallet className="h-5 w-5" />,
   stockBajo: <PackageX className="h-5 w-5" />,
   mrpAcciones: <GitBranch className="h-5 w-5" />,
 };

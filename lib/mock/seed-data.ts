@@ -39,17 +39,19 @@ export const PERFIL_DEMO: Profile = {
   id: "demo-user",
   nombre: "Usuario Demo",
   rol: "admin",
+  estado_cuenta: "aprobada",
   created_at: diasAtras(60),
 };
 
 // Perfiles adicionales solo para poder probar el selector de "responsable"
-// en modo demo (en producción esto viene de la tabla profiles real).
+// en modo demo (en producción esto viene de la tabla profiles real). Todos
+// aprobados -- el modo demo no necesita simular el filtro de aceptación.
 export const PERFILES_DEMO: Profile[] = [
   PERFIL_DEMO,
-  { id: "user-planta-1", nombre: "Jorge Medina (Planta)", rol: "operario", created_at: diasAtras(55) },
-  { id: "user-planta-2", nombre: "Sofía Ramírez (Planta)", rol: "gerente", created_at: diasAtras(55) },
-  { id: "user-ventas-1", nombre: "Carlos Peña (Ventas)", rol: "operario", created_at: diasAtras(50) },
-  { id: "user-ventas-2", nombre: "Ana Torres (Ventas)", rol: "operario", created_at: diasAtras(50) },
+  { id: "user-planta-1", nombre: "Jorge Medina (Planta)", rol: "operario", estado_cuenta: "aprobada", created_at: diasAtras(55) },
+  { id: "user-planta-2", nombre: "Sofía Ramírez (Planta)", rol: "gerente", estado_cuenta: "aprobada", created_at: diasAtras(55) },
+  { id: "user-ventas-1", nombre: "Carlos Peña (Ventas)", rol: "operario", estado_cuenta: "aprobada", created_at: diasAtras(50) },
+  { id: "user-ventas-2", nombre: "Ana Torres (Ventas)", rol: "operario", estado_cuenta: "aprobada", created_at: diasAtras(50) },
 ];
 
 export function makeSeed(): {

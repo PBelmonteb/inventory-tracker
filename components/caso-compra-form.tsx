@@ -7,7 +7,7 @@ import { Button, Input, Label } from "@/components/ui";
 import { ResponsableSelect } from "@/components/responsable-select";
 import { ProveedorMultiSelect } from "@/components/proveedor-multi-select";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
-import { crearSolicitudCompra } from "@/lib/actions/solicitudes";
+import { crearSolicitudCompra, obtenerCargaResponsables } from "@/lib/actions/solicitudes";
 import { obtenerConvenioVigente } from "@/lib/actions/convenios";
 import type { UsuarioAsignable } from "@/lib/actions/usuarios";
 import type { Convenio, Proveedor } from "@/lib/types";
@@ -45,6 +45,10 @@ export function CasoCompraForm({
   const [proveedorIds, setProveedorIds] = useState<string[]>([]);
   const [materialId, setMaterialId] = useState("");
   const [responsableId, setResponsableId] = useState("");
+  // true mientras el valor de responsableId sea la sugerencia automática y
+  // no algo que el usuario haya elegido a mano -- solo para el texto de
+  // ayuda; no cambia qué se manda al guardar.
+  const [responsableSugerido, setResponsableSugerido] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [convenio, setConvenio] = useState<Convenio | null>(null);
@@ -56,9 +60,36 @@ export function CasoCompraForm({
       setProveedorIds(prefill ? [prefill.proveedor_id] : []);
       setMaterialId(prefill?.material_id ?? "");
       setResponsableId("");
+      setResponsableSugerido(false);
       setError(null);
     }
   }, [open, prefill]);
+
+  // Pre-selecciona a quien tenga menos casos abiertos ahora mismo, en vez
+  // de dejarlo siempre en "Sin asignar" hasta que alguien elija a mano.
+  // Sigue siendo editable -- esto solo cambia el punto de partida.
+  useEffect(() => {
+    if (!open || usuarios.length === 0) return;
+    let cancelado = false;
+    obtenerCargaResponsables().then((carga) => {
+      if (cancelado) return;
+      let mejor = usuarios[0];
+      let mejorCarga = carga[mejor.id] ?? 0;
+      for (const u of usuarios) {
+        const c = carga[u.id] ?? 0;
+        if (c < mejorCarga) {
+          mejor = u;
+          mejorCarga = c;
+        }
+      }
+      setResponsableId(mejor.id);
+      setResponsableSugerido(true);
+    });
+    return () => {
+      cancelado = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // El precio pactado / botón "Usar convenio" solo tiene sentido con
   // exactamente un proveedor elegido — con varios, cada cotización toma
@@ -154,9 +185,17 @@ export function CasoCompraForm({
           <ResponsableSelect
             usuarios={usuarios}
             value={responsableId}
-            onChange={setResponsableId}
+            onChange={(id) => {
+              setResponsableId(id);
+              setResponsableSugerido(false);
+            }}
             ariaLabel="Responsable del caso"
           />
+          {responsableSugerido && responsableId && (
+            <p className="mt-1 text-xs text-faint">
+              Sugerido: es quien menos casos abiertos tiene ahora mismo — cámbialo si prefieres a alguien más.
+            </p>
+          )}
         </div>
 
         <div>

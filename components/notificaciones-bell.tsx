@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useNotificaciones } from "@/components/notificaciones-provider";
 import { PushSubscribeButton } from "@/components/push-subscribe-button";
 import type { NotificacionConRelaciones } from "@/lib/types";
-import { Bell, X, AlertTriangle, PackageX, UserCheck, ShieldCheck } from "lucide-react";
+import { Bell, X, AlertTriangle, PackageX, UserCheck, ShieldCheck, UserPlus } from "lucide-react";
 
 const NIVEL = {
   bajo: {
@@ -36,15 +36,24 @@ const AUTORIZACION = {
   label: "Autorización",
 } as const;
 
+const CUENTA_PENDIENTE = {
+  Icon: UserPlus,
+  text: "text-accent",
+  chip: "bg-accent/10 text-accent",
+  label: "Cuenta pendiente",
+} as const;
+
 function metaDe(n: NotificacionConRelaciones) {
   if (n.tipo === "asignacion") return ASIGNACION;
   if (n.tipo === "autorizacion") return AUTORIZACION;
+  if (n.tipo === "cuenta_pendiente") return CUENTA_PENDIENTE;
   return NIVEL[n.nivel ?? "bajo"];
 }
 
-// A dónde lleva el link de una notificación sin material (asignación o
-// autorización — ambas siempre apuntan a un caso, no a un material).
+// A dónde lleva el link de una notificación sin material (asignación,
+// autorización o cuenta pendiente — ninguna apunta a un material).
 function hrefSinMaterial(n: NotificacionConRelaciones): string | null {
+  if (n.tipo === "cuenta_pendiente") return "/administracion?tab=usuarios";
   if (n.caso_compra_id) return "/proveedores";
   if (n.caso_venta_id || n.salida_pendiente_id) return "/clientes";
   return null;
@@ -114,7 +123,8 @@ export function NotificacionesBell({
               {abiertas.map((n) => {
                 const meta = metaDe(n);
                 const Icon = meta.Icon;
-                const sinMaterial = n.tipo === "asignacion" || n.tipo === "autorizacion";
+                const sinMaterial =
+                  n.tipo === "asignacion" || n.tipo === "autorizacion" || n.tipo === "cuenta_pendiente";
                 const href = sinMaterial
                   ? hrefSinMaterial(n)
                   : n.materiales

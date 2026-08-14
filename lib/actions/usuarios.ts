@@ -7,7 +7,7 @@ import { mensajeSupabase } from "@/lib/supabase/errors";
 import { getCurrentProfile, esGestor } from "@/lib/auth";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
-import type { Rol } from "@/lib/types";
+import type { EstadoCuenta, Rol } from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -18,6 +18,7 @@ export interface UsuarioListado {
   rol: Rol;
   created_at: string;
   activo: boolean;
+  estado_cuenta: EstadoCuenta;
 }
 
 const ROLES: Rol[] = ["admin", "gerente", "operario", "compras", "ventas"];
@@ -52,7 +53,7 @@ export async function listarUsuarios(): Promise<
     await Promise.all([
       admin
         .from("profiles")
-        .select("id, nombre, rol, created_at")
+        .select("id, nombre, rol, created_at, estado_cuenta")
         .order("created_at", { ascending: true }),
       admin.auth.admin.listUsers({ perPage: 1000 }),
     ]);
@@ -77,6 +78,7 @@ export async function listarUsuarios(): Promise<
       created_at: p.created_at,
       email: authUser?.email ?? null,
       activo,
+      estado_cuenta: p.estado_cuenta,
     };
   });
 
@@ -107,10 +109,13 @@ export async function listarUsuariosParaAsignar(): Promise<
     };
   }
 
+  // Solo cuentas aprobadas -- no tiene caso ofrecer como responsable a
+  // alguien que todavía no puede ni entrar a la app.
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("profiles")
     .select("id, nombre, rol")
+    .eq("estado_cuenta", "aprobada")
     .order("nombre");
   if (error) return { ok: false, error: mensajeSupabase(error) };
   return { ok: true, usuarios: (data as UsuarioAsignable[]) ?? [] };
@@ -153,15 +158,70 @@ export async function crearUsuario(formData: FormData): Promise<ActionResult> {
   });
   if (error) return { ok: false, error: mensajeSupabase(error) };
 
-  // El trigger handle_new_user ya creó el profile con rol "operario" por
-  // defecto; si el gestor eligió otro rol, lo ajustamos aquí.
-  if (rol !== "operario" && data.user) {
+  // El trigger handle_new_user ya creó el profile (rol "operario",
+  // estado_cuenta "pendiente" por defecto) -- se ajusta aquí al rol elegido
+  // y se aprueba de una vez: un gestor ya vetó esta cuenta al crearla a
+  // mano, pedirle una segunda aprobación sería puro trabajo de más.
+  if (data.user) {
     const { error: updError } = await admin
       .from("profiles")
-      .update({ rol })
+      .update({ rol, estado_cuenta: "aprobada" })
       .eq("id", data.user.id);
     if (updError) return { ok: false, error: mensajeSupabase(updError) };
   }
+
+  revalidatePath("/administracion");
+  return { ok: true };
+}
+
+// Aprueba una cuenta de auto-registro: le asigna rol y la deja entrar.
+export async function aprobarCuenta(userId: string, rol: Rol): Promise<ActionResult> {
+  if (DEMO)
+    return {
+      ok: false,
+      error: "La gestión de usuarios requiere el backend de Supabase conectado.",
+    };
+  try {
+    await requireGestor();
+  } catch {
+    return { ok: false, error: "No autorizado" };
+  }
+  if (!ROLES.includes(rol)) return { ok: false, error: "Rol inválido" };
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("profiles")
+    .update({ rol, estado_cuenta: "aprobada" })
+    .eq("id", userId);
+  if (error) return { ok: false, error: mensajeSupabase(error) };
+
+  revalidatePath("/administracion");
+  return { ok: true };
+}
+
+// Rechaza una cuenta de auto-registro -- queda registrada como "rechazada"
+// (no se borra, mismo criterio que un caso de compra rechazado: se guarda
+// el rastro en vez de desaparecerlo). La persona ve el motivo genérico en
+// /pendiente; si quiere reintentar con otro correo, tendría que ser un
+// gestor quien la borre desde aquí más adelante si hace falta.
+export async function rechazarCuenta(userId: string): Promise<ActionResult> {
+  if (DEMO)
+    return {
+      ok: false,
+      error: "La gestión de usuarios requiere el backend de Supabase conectado.",
+    };
+  try {
+    await requireGestor();
+  } catch {
+    return { ok: false, error: "No autorizado" };
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("profiles")
+    .update({ estado_cuenta: "rechazada" })
+    .eq("id", userId);
+  if (error) return { ok: false, error: mensajeSupabase(error) };
 
   revalidatePath("/administracion");
   return { ok: true };

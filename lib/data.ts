@@ -394,6 +394,77 @@ export async function getStockSugerido(materialId: string): Promise<StockSugerid
   });
 }
 
+// Mismo cálculo que getStockSugerido, pero para TODO el catálogo activo de
+// una sola pasada -- para el botón "Aplicar sugeridos" de Inventario, que
+// llena el stock mínimo de cada material que tenga suficiente historial sin
+// tener que abrir uno por uno. Mismo patrón de agrupar-en-memoria que ya usa
+// lib/casos-automaticos.ts para salidas/recibidas por material.
+export async function getStockSugeridoTodos(): Promise<Record<string, StockSugerido>> {
+  if (DEMO) {
+    const materiales = store.getMateriales().filter((m) => m.activo);
+    const casosRecibidos = store.getCasosCompra().filter((c) => c.estado === "recibido");
+    const resultado: Record<string, StockSugerido> = {};
+    for (const m of materiales) {
+      const salidas = store
+        .getMovimientosDeMaterial(m.id)
+        .filter((mv) => mv.tipo === "salida")
+        .map((mv) => ({ cantidad: mv.cantidad, created_at: mv.created_at }));
+      const comprasRecibidas = casosRecibidos
+        .filter((c) => c.material_id === m.id)
+        .map((c) => ({ created_at: c.created_at, updated_at: c.updated_at }));
+      resultado[m.id] = calcularStockSugerido({ salidas, comprasRecibidas });
+    }
+    return resultado;
+  }
+
+  const supabase = await createClient();
+  const [{ data: materiales }, { data: salidasRows }, { data: recibidasRows }] =
+    await Promise.all([
+      supabase.from("materiales").select("id").eq("activo", true),
+      supabase
+        .from("movimientos")
+        .select("material_id, cantidad, created_at")
+        .eq("tipo", "salida"),
+      supabase
+        .from("casos_compra")
+        .select("material_id, created_at, updated_at")
+        .eq("estado", "recibido"),
+    ]);
+
+  const salidasPorMaterial = new Map<string, { cantidad: number; created_at: string }[]>();
+  for (const s of (salidasRows ?? []) as {
+    material_id: string | null;
+    cantidad: number;
+    created_at: string;
+  }[]) {
+    if (!s.material_id) continue;
+    const lista = salidasPorMaterial.get(s.material_id) ?? [];
+    lista.push({ cantidad: s.cantidad, created_at: s.created_at });
+    salidasPorMaterial.set(s.material_id, lista);
+  }
+
+  const recibidasPorMaterial = new Map<string, { created_at: string; updated_at: string }[]>();
+  for (const c of (recibidasRows ?? []) as {
+    material_id: string | null;
+    created_at: string;
+    updated_at: string;
+  }[]) {
+    if (!c.material_id) continue;
+    const lista = recibidasPorMaterial.get(c.material_id) ?? [];
+    lista.push({ created_at: c.created_at, updated_at: c.updated_at });
+    recibidasPorMaterial.set(c.material_id, lista);
+  }
+
+  const resultado: Record<string, StockSugerido> = {};
+  for (const m of (materiales ?? []) as { id: string }[]) {
+    resultado[m.id] = calcularStockSugerido({
+      salidas: salidasPorMaterial.get(m.id) ?? [],
+      comprasRecibidas: recibidasPorMaterial.get(m.id) ?? [],
+    });
+  }
+  return resultado;
+}
+
 // Cantidad económica de pedido (ver lib/eoq.ts) — el costo_unitario se
 // recibe como parámetro porque quien llama (el formulario de cotización)
 // ya lo tiene del material cargado, sin necesidad de otra consulta.

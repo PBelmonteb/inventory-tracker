@@ -10,7 +10,7 @@ import { Badge, Button, Card, Input, Select } from "@/components/ui";
 import { MaterialForm } from "@/components/material-form";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
 import { Sparkline } from "@/components/sparkline";
-import { actualizarStocksMinimos } from "@/lib/actions/materiales";
+import { actualizarStocksMinimos, obtenerStockSugeridoTodos } from "@/lib/actions/materiales";
 import {
   exportarCSV,
   formatMoney,
@@ -25,7 +25,7 @@ import type {
   StockPorUbicacion,
   Ubicacion,
 } from "@/lib/types";
-import { Plus, Search, Pencil, AlertTriangle, Download, Save } from "lucide-react";
+import { Plus, Search, Pencil, AlertTriangle, Download, Save, Wand2 } from "lucide-react";
 
 export function InventarioView({
   materiales,
@@ -80,9 +80,35 @@ export function InventarioView({
     Object.fromEntries(materiales.map((m) => [m.id, String(m.stock_minimo)]))
   );
   const [guardandoStock, setGuardandoStock] = useState(false);
+  const [aplicandoSugeridos, setAplicandoSugeridos] = useState(false);
   const cambiosStock = materiales.filter(
     (m) => Number(stocksMin[m.id]) !== m.stock_minimo
   );
+
+  // Llena el campo (editable, sin guardar todavía) con el punto de reorden
+  // calculado del historial real, para cada material que tenga suficiente
+  // -- sin abrir uno por uno. El guardado sigue siendo el mismo botón de
+  // siempre ("Guardar mínimos"), así el gestor revisa antes de confirmar.
+  async function aplicarSugeridos() {
+    setAplicandoSugeridos(true);
+    const sugeridos = await obtenerStockSugeridoTodos();
+    setAplicandoSugeridos(false);
+
+    const nuevos: Record<string, string> = {};
+    for (const m of materiales) {
+      const s = sugeridos[m.id];
+      if (s?.disponible) nuevos[m.id] = String(Math.ceil(s.puntoReorden));
+    }
+    const aplicados = Object.keys(nuevos).length;
+    if (aplicados === 0) {
+      alert("Ningún material tiene suficiente historial todavía para sugerir un stock mínimo.");
+      return;
+    }
+    setStocksMin((prev) => ({ ...prev, ...nuevos }));
+    alert(
+      `Se llenó el sugerido en ${aplicados} de ${materiales.length} materiales. Revisa los cambios y da clic en "Guardar mínimos" para confirmarlos.`
+    );
+  }
 
   async function guardarStocksMinimos() {
     const updates = cambiosStock.map((m) => ({
@@ -314,6 +340,12 @@ export function InventarioView({
             <Download className="h-4 w-4" />
             Excel
           </Button>
+          {esGestor && (
+            <Button variant="secondary" onClick={aplicarSugeridos} disabled={aplicandoSugeridos}>
+              <Wand2 className="h-4 w-4" />
+              {aplicandoSugeridos ? "Calculando..." : "Aplicar sugeridos"}
+            </Button>
+          )}
           {esGestor && cambiosStock.length > 0 && (
             <Button onClick={guardarStocksMinimos} disabled={guardandoStock}>
               <Save className="h-4 w-4" />

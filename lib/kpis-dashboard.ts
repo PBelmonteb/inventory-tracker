@@ -15,7 +15,9 @@ export type FormatoKPI = "moneda" | "numero" | "horas";
 // nunca como una línea de tendencia (sería una línea plana engañosa).
 export interface EstadoActualKPIs {
   valorInventario: number;
-  valorParado: number;
+  // Valor del inventario en la franja "> 90 días" de la edad de inventario
+  // (ver lib/reportes.ts) -- reemplaza al viejo "dinero parado" binario.
+  valorEnvejecido: number;
   materialesStockBajo: number;
   mrpAccionesPendientes: number;
 }
@@ -128,12 +130,12 @@ export const CATALOGO_KPIS: DefinicionKPI[] = [
     valorActual: (e) => e.valorInventario,
   },
   {
-    id: "valorParado",
-    label: "Dinero parado (hoy)",
+    id: "valorEnvejecido",
+    label: "Inventario envejecido (>90 días, hoy)",
     categoria: "actual",
     formato: "moneda",
     tendenciable: false,
-    valorActual: (e) => e.valorParado,
+    valorActual: (e) => e.valorEnvejecido,
   },
   {
     id: "stockBajo",

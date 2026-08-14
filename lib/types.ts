@@ -3,10 +3,13 @@
 export type Rol = "admin" | "gerente" | "operario" | "compras" | "ventas";
 export type TipoMovimiento = "entrada" | "salida" | "ajuste";
 
+export type EstadoCuenta = "pendiente" | "aprobada" | "rechazada";
+
 export interface Profile {
   id: string;
   nombre: string;
   rol: Rol;
+  estado_cuenta: EstadoCuenta;
   created_at: string;
 }
 
@@ -253,7 +256,11 @@ export type NivelNotificacion = "aviso" | "bajo";
 // "stock" = alerta global de stock bajo (como hoy); "asignacion" = te
 // asignaron un caso/salida pendiente (personal, solo la ve el destinatario);
 // "autorizacion" = tu caso de compra fue autorizado o rechazado.
-export type TipoNotificacion = "stock" | "asignacion" | "autorizacion";
+export type TipoNotificacion =
+  | "stock"
+  | "asignacion"
+  | "autorizacion"
+  | "cuenta_pendiente";
 
 export interface Notificacion {
   id: string;

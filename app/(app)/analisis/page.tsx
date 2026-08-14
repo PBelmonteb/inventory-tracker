@@ -4,6 +4,7 @@ import { getCurrentProfile, esGestor } from "@/lib/auth";
 import { getReportes, DIAS_PARADO } from "@/lib/reportes";
 import { getTendenciaKPIs } from "@/lib/reportes-gerenciales";
 import { KPI_IDS_POR_DEFECTO } from "@/lib/kpis-dashboard";
+import { aiInsightsConfigurado } from "@/lib/actions/ai-insights";
 import type { TipoReporte } from "@/lib/reportes-periodo";
 import {
   getClasificacionABCXYZ,
@@ -15,7 +16,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const TABS = ["reportes", "clasificacion", "mrp", "dashboard"] as const;
+const TABS = ["reportes", "clasificacion", "mrp", "dashboard", "ai-insights"] as const;
 const TIPOS_PERIODO = ["semanal", "mensual", "trimestral", "anual"] as const;
 // Cuántos periodos consecutivos mostrar en la tendencia por granularidad
 // — suficiente para ver un patrón sin saturar la gráfica.
@@ -70,13 +71,14 @@ export default async function AnalisisPage({
       tendencia={tendencia}
       estadoActualKPIs={{
         valorInventario: reportes.valorTotal,
-        valorParado: reportes.valorParado,
+        valorEnvejecido: reportes.valorEnvejecido,
         materialesStockBajo: reportes.comprarAhora.length,
         mrpAccionesPendientes,
       }}
       kpisActivos={kpisActivos}
       vistas={vistas}
       tabInicial={tabInicial}
+      aiInsightsConfigurado={aiInsightsConfigurado()}
     />
   );
 }
