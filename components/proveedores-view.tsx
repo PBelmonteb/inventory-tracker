@@ -361,10 +361,15 @@ export function ProveedoresView({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={revisarReposicion} disabled={revisando}>
-            <RefreshCw className={`h-4 w-4 ${revisando ? "animate-spin" : ""}`} />
-            Revisar reposición ahora
-          </Button>
+          {/* Puede terminar mandando una orden real por convenio -- misma
+              decisión de compras que autorizar un caso, no algo que un
+              operario deba poder disparar (ver lib/actions/casos-automaticos.ts). */}
+          {esGestor && (
+            <Button variant="secondary" onClick={revisarReposicion} disabled={revisando}>
+              <RefreshCw className={`h-4 w-4 ${revisando ? "animate-spin" : ""}`} />
+              Revisar reposición ahora
+            </Button>
+          )}
           {DEMO && (
             <Button variant="secondary" onClick={() => setSimuladorAbierto(true)}>
               <Mail className="h-4 w-4" /> Simular correo
