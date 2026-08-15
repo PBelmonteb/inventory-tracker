@@ -25,7 +25,10 @@ export type ResultadoInsightsIA =
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_MODEL = "claude-sonnet-5";
 
-export function aiInsightsConfigurado(): boolean {
+// Server Actions deben ser funciones async -- aunque esta no necesite
+// esperar nada, un archivo "use server" no puede exportar una función
+// síncrona (rompe el build de Next.js, no solo un lint).
+export async function aiInsightsConfigurado(): Promise<boolean> {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 

@@ -78,7 +78,7 @@ export default async function AnalisisPage({
       kpisActivos={kpisActivos}
       vistas={vistas}
       tabInicial={tabInicial}
-      aiInsightsConfigurado={aiInsightsConfigurado()}
+      aiInsightsConfigurado={await aiInsightsConfigurado()}
     />
   );
 }
