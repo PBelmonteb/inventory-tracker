@@ -15,36 +15,70 @@
   --fg: 38 35 30; /* texto cálido casi-negro #26231E */
   --muted: 92 86 76; /* texto secundario #5C564C */
   --faint: 140 133 120; /* texto terciario #8C8578 */
-  --accent: 45 100 73; /* verde profundo #2D6449 */
-  --accent-fg: 243 240 232;
+  /* Acento COVALSA (demo 2026-08-15): azul en vez de rojo, pedido
+     explícito — el rojo del volante ya no es el acento principal en
+     ningún modo. En claro es el azul marino de covalsaleon.mx
+     (#16163F, su franja superior); en oscuro es un celeste más claro
+     de la misma familia, no este mismo navy (ver nota en .dark: navy
+     sobre negro casi no se ve). Revertir a rojo en ambos: 238 0 0 /
+     accent-fg 250 245 240 en los dos bloques. Verde original (previo a
+     COVALSA, ambos modos): accent 45 100 73 / accent-fg 243 240 232
+     (claro), accent 124 199 154 / accent-fg 18 22 14 (oscuro). */
+  --accent: 22 22 63; /* azul marino COVALSA #16163F */
+  --accent-fg: 250 245 240;
 
-  /* Sidebar — oscuro cálido en ambos modos (firma de la referencia) */
-  --sidebar: 26 24 19; /* #1A1813 */
-  --sidebar-surface: 40 36 29; /* #28241D */
-  --sidebar-fg: 233 229 219;
-  --sidebar-muted: 154 146 132;
-  --sidebar-line: 52 47 38; /* #342F26 */
+  /* Sidebar (demo COVALSA 2026-08-15): ya no es una franja oscura fija
+     -- se fusiona con el crema del canvas, mismo criterio que el sitio
+     de covalsaleon.mx (todo claro, sin rail oscuro). Literalmente los
+     mismos valores que --canvas/--surface-2/--fg/--muted/--line de
+     arriba, no una paleta aparte. El indicador activo (azul marino,
+     ver --accent arriba) se lee bien sobre crema -- el mismo contraste
+     que ya usa covalsaleon.mx en su propia franja superior.
+     Revertir: --sidebar 26 24 19 / --sidebar-surface 40 36 29 /
+     --sidebar-fg 233 229 219 / --sidebar-muted 154 146 132 /
+     --sidebar-line 52 47 38 (el oscuro fijo original). */
+  --sidebar: 233 229 219; /* = canvas #E9E5DB */
+  --sidebar-surface: 225 220 208; /* = surface-2 #E1DCD0 */
+  --sidebar-fg: 38 35 30; /* = fg #26231E */
+  --sidebar-muted: 92 86 76; /* = muted #5C564C */
+  --sidebar-line: 213 207 194; /* = line #D5CFC2 */
 
   color-scheme: light;
 }
 
 .dark {
-  /* Modo oscuro cálido (sepia/café) — calidez del crema, legible */
-  --canvas: 20 17 13; /* café muy oscuro #14110D */
-  --surface: 33 28 22; /* tarjeta cálida #211C16 */
-  --surface-2: 42 36 28; /* superficie sutil #2A241C */
-  --line: 50 43 34; /* borde #322B22 */
-  --fg: 224 218 207; /* texto crema #E0DACF */
-  --muted: 168 160 147; /* secundario cálido */
-  --faint: 128 120 107; /* terciario cálido */
-  --accent: 124 199 154; /* verde claro #7CC79A */
-  --accent-fg: 18 22 14;
+  /* Modo oscuro (demo COVALSA 2026-08-15): negro neutro puro, no el
+     café/sepia original de la app -- mismo criterio que la landing page
+     (crema+rojo en claro, negro+rojo en oscuro), pedido explícito de
+     simplificar. Revertir al café original: canvas 20 17 13 / surface
+     33 28 22 / surface-2 42 36 28 / line 50 43 34 / fg 224 218 207 /
+     muted 168 160 147 / faint 128 120 107. */
+  --canvas: 12 12 12; /* negro neutro #0C0C0C */
+  --surface: 23 23 23; /* tarjeta #171717 */
+  --surface-2: 36 36 36; /* superficie sutil #242424 */
+  --line: 44 44 44; /* borde #2C2C2C */
+  --fg: 242 240 236; /* texto casi blanco #F2F0EC */
+  --muted: 168 162 154; /* secundario #A8A29A */
+  --faint: 110 106 98; /* terciario #6E6A62 */
+  /* Azul en vez de rojo también en oscuro (pedido explícito) — pero NO
+     el mismo #16163F del modo claro: ese navy es casi tan oscuro como
+     este fondo negro (#0C0C0C), el botón se volvería casi invisible
+     (contraste ~1.5:1, muy por debajo de lo usable). Se usa el celeste
+     pálido que COVALSA ya usa como texto sobre sus propias secciones
+     oscuras (#C0EAFF, sacado de su sitio) — misma familia de azul,
+     con la claridad que este fondo sí necesita. Texto oscuro encima
+     (accent-fg), como el verde claro original en dark. */
+  --accent: 192 234 255; /* celeste COVALSA #C0EAFF */
+  --accent-fg: 10 14 30;
 
-  --sidebar: 14 11 7; /* #0E0B07 */
-  --sidebar-surface: 34 28 21; /* #221C15 */
-  --sidebar-fg: 224 218 207;
-  --sidebar-muted: 154 144 130;
-  --sidebar-line: 46 40 32; /* #2E2820 */
+  /* Fusionado con el canvas negro, mismo criterio que en :root.
+     Revertir: 14 11 7 / 34 28 21 / 224 218 207 / 154 144 130 / 46 40 32
+     (café oscuro original, previo a COVALSA). */
+  --sidebar: 12 12 12; /* = canvas #0C0C0C */
+  --sidebar-surface: 36 36 36; /* = surface-2 #242424 */
+  --sidebar-fg: 242 240 236; /* = fg #F2F0EC */
+  --sidebar-muted: 168 162 154; /* = muted */
+  --sidebar-line: 44 44 44; /* = line #2C2C2C */
 
   color-scheme: dark;
 }

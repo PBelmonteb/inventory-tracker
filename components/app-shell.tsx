@@ -133,7 +133,7 @@ export function AppShell({
     <NotificacionesProvider>
     <div className="flex min-h-screen flex-col bg-canvas md:flex-row">
       {/* ---------- Sidebar (escritorio) ---------- */}
-      <aside className="hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-fg md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-sidebar-line bg-sidebar text-sidebar-fg md:flex">
         <div className="flex items-center gap-2.5 px-5 py-5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-accent-fg">
             <Boxes className="h-5 w-5" />
@@ -205,7 +205,7 @@ export function AppShell({
       </aside>
 
       {/* ---------- Header móvil ---------- */}
-      <header className="flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-fg md:hidden">
+      <header className="flex items-center justify-between border-b border-sidebar-line bg-sidebar px-4 py-3 text-sidebar-fg md:hidden">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-fg">
             <Boxes className="h-4 w-4" />

@@ -42,7 +42,7 @@ function CardAccion({
           {icon}
           {titulo}
         </h2>
-        <Link href={verTodosHref} className="text-xs font-medium text-accent hover:underline">
+        <Link href={verTodosHref} className="text-xs font-medium text-fg hover:text-accent hover:underline">
           Ver todos
         </Link>
       </div>
