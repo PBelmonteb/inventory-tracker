@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   construirCorreoCotizacion,
+  construirCorreoCotizacionMultiProducto,
   construirCorreoOrdenConvenio,
 } from "@/lib/plantillas-correo";
 
@@ -35,6 +36,30 @@ describe("construirCorreoCotizacion", () => {
       referencia: "OC-000001",
     });
     expect(cuerpo).toMatch(/Estimados proveedor/);
+  });
+});
+
+describe("construirCorreoCotizacionMultiProducto", () => {
+  it("pide precio de varios materiales en un solo correo, cada uno con su sku y cantidad", () => {
+    const { asunto, cuerpo } = construirCorreoCotizacionMultiProducto({
+      proveedorNombre: "Aluminios del Norte",
+      items: [
+        { nombre: MATERIAL.nombre, sku: MATERIAL.sku, unidad: MATERIAL.unidad, cantidad: 150 },
+        { nombre: "Bisagra reforzada", sku: "BIS-014", unidad: "pza", cantidad: 40 },
+      ],
+      referencia: "OC-123456",
+    });
+    expect(asunto).toContain("[OC-123456]");
+    expect(asunto).toContain("2 materiales");
+    expect(cuerpo).toContain("Aluminios del Norte");
+    expect(cuerpo).toContain(MATERIAL.nombre);
+    expect(cuerpo).toContain("PERF-001");
+    expect(cuerpo).toMatch(/150/);
+    expect(cuerpo).toContain("Bisagra reforzada");
+    expect(cuerpo).toContain("BIS-014");
+    expect(cuerpo).toMatch(/40/);
+    // No debe mencionar un precio — todavía no se conoce.
+    expect(cuerpo).not.toMatch(/\$/);
   });
 });
 

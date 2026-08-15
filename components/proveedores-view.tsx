@@ -8,6 +8,7 @@ import {
   CasoCompraForm,
   type PrefillCasoCompra,
 } from "@/components/caso-compra-form";
+import { CasoCompraMultiProductoForm } from "@/components/caso-compra-multi-producto-form";
 import { CasoCompraCard } from "@/components/caso-compra-card";
 import { NOTIF_REFRESH_EVENT } from "@/components/notificaciones-provider";
 import { SimuladorEmail } from "@/components/simulador-email";
@@ -126,6 +127,7 @@ export function ProveedoresView({
   const router = useRouter();
   const [tab, setTab] = useState<TabId>(tabInicial ?? "pendientes");
   const [formAbierto, setFormAbierto] = useState(false);
+  const [multiProductoAbierto, setMultiProductoAbierto] = useState(false);
   const [proveedorAbierto, setProveedorAbierto] = useState(false);
   const [simuladorAbierto, setSimuladorAbierto] = useState(false);
   const [prefill, setPrefill] = useState<PrefillCasoCompra | null>(null);
@@ -385,6 +387,9 @@ export function ProveedoresView({
             }}
           >
             <Plus className="h-4 w-4" /> Nuevo caso
+          </Button>
+          <Button variant="secondary" onClick={() => setMultiProductoAbierto(true)}>
+            <Mail className="h-4 w-4" /> Cotización multi-producto
           </Button>
         </div>
       </div>
@@ -691,6 +696,13 @@ export function ProveedoresView({
         usuarios={usuarios}
         prefill={prefill}
         esGestor={esGestor}
+      />
+      <CasoCompraMultiProductoForm
+        open={multiProductoAbierto}
+        onClose={() => setMultiProductoAbierto(false)}
+        proveedores={proveedores}
+        materiales={materialesCompletos}
+        usuarios={usuarios}
       />
       <NuevoProveedorModal open={proveedorAbierto} onClose={() => setProveedorAbierto(false)} />
       <SimuladorEmail

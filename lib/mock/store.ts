@@ -2387,6 +2387,70 @@ export const store = {
     return { solicitud, casos };
   },
 
+  // Cotización de VARIOS materiales al MISMO proveedor bajo un solo correo
+  // (opción B de "multi-producto", ver memoria covalsa-tour-prep): cada
+  // material sigue siendo su propio caso_compra (mismo pipeline/recepción/
+  // calidad que hoy), solo comparten `referencia` (código base, sin sufijo
+  // — a diferencia de crearSolicitudCompra, aquí no hay solicitud_id ni
+  // "ganadora": los N materiales se piden juntos, no se comparan entre sí).
+  // Al no llevar sufijo, una respuesta del proveedor con el código base en
+  // el asunto se liga (matchReferenciaEnAsunto) al primer caso del lote —
+  // limitación aceptada a propósito, ver timeline de cualquiera de los
+  // otros para el resto del correo.
+  crearCotizacionMultiProducto(
+    datos: {
+      proveedor_id: string;
+      items: { material_id: string; cantidad: number }[];
+      estado: EstadoCasoCompra;
+      responsable_id?: string | null;
+    },
+    actor: UsuarioActor = { id: null, nombre: null }
+  ): CasoCompra[] {
+    const prov = db.proveedores.find((p) => p.id === datos.proveedor_id);
+    if (!prov) throw new Error("Proveedor no encontrado");
+    if (datos.items.length < 2)
+      throw new Error("Agrega al menos dos materiales — con uno solo usa el caso normal");
+
+    const codigoBase = `OC-${Date.now().toString().slice(-6)}`;
+    const nombresTodos = datos.items
+      .map((it) => db.materiales.find((m) => m.id === it.material_id)?.nombre ?? "material")
+      .join(", ");
+
+    const casos: CasoCompra[] = [];
+    for (const it of datos.items) {
+      const material = db.materiales.find((m) => m.id === it.material_id);
+      const convenio = db.convenios.find(
+        (c) =>
+          c.proveedor_id === datos.proveedor_id &&
+          c.material_id === it.material_id &&
+          esConvenioVigente(c)
+      );
+      const caso = store.crearCasoCompra({
+        proveedor_id: datos.proveedor_id,
+        material_id: it.material_id,
+        titulo: `${material?.nombre ?? "Material"} — cotización conjunta ${codigoBase}`,
+        descripcion: null,
+        monto_estimado: convenio ? convenio.precio_pactado * it.cantidad : 0,
+        cantidad_estimada: it.cantidad,
+        referencia: codigoBase,
+        estado: datos.estado,
+        responsable_id: datos.responsable_id,
+        creado_por_id: actor.id,
+        creado_por_nombre: actor.nombre,
+      });
+      store.registrarEventoCaso(
+        caso.id,
+        "creado",
+        `Cotización conjunta ${codigoBase} a ${prov.nombre}, junto con: ${nombresTodos}.`,
+        actor
+      );
+      if (datos.responsable_id)
+        store.asignarResponsableCasoCompra(caso.id, datos.responsable_id, actor.nombre);
+      casos.push(caso);
+    }
+    return casos;
+  },
+
   // Compartida con recibirCasoCompra: recibir físicamente de un proveedor
   // también confirma que ese fue el elegido.
   resolverSolicitud(

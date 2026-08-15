@@ -431,6 +431,150 @@ export async function enviarCotizacionCasoExistente(
   return { ok: true };
 }
 
+// Cotización de VARIOS materiales al MISMO proveedor en un solo correo
+// (opción B de "multi-producto" — ver memoria covalsa-tour-prep y
+// components/caso-compra-multi-producto-form.tsx). Por debajo se crea un
+// caso_compra normal por material (mismo pipeline/recepción/calidad de
+// siempre), compartiendo `referencia` como código base sin sufijo —
+// deliberadamente distinto de crearSolicitudCompra (lib/actions/
+// solicitudes.ts), que compara VARIOS proveedores para UN material y elige
+// ganadora; aquí no hay "ganadora", los N materiales se piden juntos.
+//
+// Mismo ruteo por rol que crearSolicitudCompra con un solo proveedor: si
+// quien crea no puede gestionar compras, cada caso entra directo a
+// "por_autorizar" (material+cantidad ya vienen garantizados por el
+// carrito). El monto lo capta el convenio vigente si existe, si no
+// se queda en $0 hasta que llegue la cotización real.
+export async function solicitarCotizacionMultiProducto(
+  formData: FormData
+): Promise<ActionResult> {
+  const proveedor_id = String(formData.get("proveedor_id") ?? "");
+  const responsable_id = String(formData.get("responsable_id") ?? "") || null;
+  const asunto = String(formData.get("asunto") ?? "").trim();
+  const cuerpo = String(formData.get("cuerpo") ?? "").trim();
+
+  let itemsRaw: unknown;
+  try {
+    itemsRaw = JSON.parse(String(formData.get("items") ?? "[]"));
+  } catch {
+    return { ok: false, error: "Datos inválidos" };
+  }
+  const items = (Array.isArray(itemsRaw) ? itemsRaw : [])
+    .map((it) => ({
+      material_id: String((it as { material_id?: unknown })?.material_id ?? ""),
+      cantidad: Number((it as { cantidad?: unknown })?.cantidad ?? 0),
+    }))
+    .filter((it) => it.material_id && it.cantidad > 0);
+
+  if (!proveedor_id) return { ok: false, error: "Selecciona un proveedor" };
+  if (items.length < 2)
+    return {
+      ok: false,
+      error: 'Agrega al menos dos materiales — con uno solo usa "Nuevo caso"',
+    };
+  if (!asunto) return { ok: false, error: "El asunto es obligatorio" };
+
+  const yo = await getCurrentProfile();
+  const actor = { id: yo?.id ?? null, nombre: yo?.nombre ?? null };
+  const estadoInicial: EstadoCasoCompra = puedeGestionarCompras(yo)
+    ? "pendiente"
+    : "por_autorizar";
+  const detalleCorreo = formatearCorreoEvento(asunto, cuerpo);
+
+  if (DEMO) {
+    try {
+      const casos = store.crearCotizacionMultiProducto(
+        { proveedor_id, items, estado: estadoInicial, responsable_id },
+        actor
+      );
+      // El evento "creado" ya menciona el lote (store.crearCotizacionMultiProducto);
+      // aquí solo falta registrar que el correo combinado salió, en cada caso.
+      for (const caso of casos)
+        store.registrarEventoCaso(caso.id, "correo_enviado", detalleCorreo, actor);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "Error" };
+    }
+  } else {
+    const supabase = await createClient();
+    const materialIds = items.map((it) => it.material_id);
+
+    const [{ data: proveedor }, { data: materialesRows }] = await Promise.all([
+      supabase.from("proveedores").select("nombre").eq("id", proveedor_id).single(),
+      supabase.from("materiales").select("id, nombre").in("id", materialIds),
+    ]);
+    const nombrePorMaterial = new Map(
+      (materialesRows ?? []).map((m) => [m.id, m.nombre as string])
+    );
+    const nombresTodos = items
+      .map((it) => nombrePorMaterial.get(it.material_id) ?? "material")
+      .join(", ");
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    const { data: conveniosRows } = await supabase
+      .from("convenios_proveedor")
+      .select("material_id, precio_pactado, vigencia_hasta")
+      .eq("proveedor_id", proveedor_id)
+      .eq("activo", true)
+      .in("material_id", materialIds);
+    const precioPorMaterial = new Map<string, number>();
+    for (const c of conveniosRows ?? []) {
+      if (!c.vigencia_hasta || c.vigencia_hasta >= hoy)
+        precioPorMaterial.set(c.material_id, c.precio_pactado);
+    }
+
+    const codigoBase = `OC-${Date.now().toString().slice(-6)}`;
+
+    for (const it of items) {
+      const nombreMaterial = nombrePorMaterial.get(it.material_id) ?? "Material";
+      const precio = precioPorMaterial.get(it.material_id);
+      const { data: caso, error } = await supabase
+        .from("casos_compra")
+        .insert({
+          proveedor_id,
+          material_id: it.material_id,
+          titulo: `${nombreMaterial} — cotización conjunta ${codigoBase}`,
+          descripcion: null,
+          monto_estimado: precio ? precio * it.cantidad : 0,
+          cantidad_estimada: it.cantidad,
+          referencia: codigoBase,
+          estado: estadoInicial,
+          origen: "manual",
+          creado_por_id: actor.id,
+          creado_por_nombre: actor.nombre,
+        })
+        .select("id")
+        .single();
+      // No se aborta el resto del lote por un material.
+      if (error || !caso) continue;
+      await registrarEventoCaso(
+        supabase,
+        caso.id,
+        "creado",
+        `Cotización conjunta ${codigoBase} a ${proveedor?.nombre ?? "proveedor"}, junto con: ${nombresTodos}.`,
+        actor
+      );
+      await registrarEventoCaso(supabase, caso.id, "correo_enviado", detalleCorreo, actor);
+      if (responsable_id) {
+        await supabase.rpc("asignar_responsable_caso_compra", {
+          p_caso: caso.id,
+          p_usuario: responsable_id,
+          p_asignado_por: actor.nombre,
+        });
+        await registrarEventoCaso(
+          supabase,
+          caso.id,
+          "responsable_asignado",
+          "Responsable asignado",
+          actor
+        );
+      }
+    }
+  }
+
+  revalidatePath("/proveedores");
+  return { ok: true };
+}
+
 export async function descartarNotificacion(
   id: string
 ): Promise<ActionResult> {

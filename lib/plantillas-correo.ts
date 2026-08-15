@@ -52,6 +52,36 @@ export function construirCorreoCotizacion(params: {
   return { asunto, cuerpo };
 }
 
+// Solicitud de cotización de VARIOS materiales al mismo proveedor en un
+// solo correo (components/caso-compra-multi-producto-form.tsx). Por debajo
+// cada material sigue siendo su propio caso_compra (mismo pipeline,
+// recepción y calidad que hoy) — esto solo agrupa el correo de solicitud.
+// Mismo criterio de `referencia` entre corchetes que construirCorreoCotizacion.
+export function construirCorreoCotizacionMultiProducto(params: {
+  proveedorNombre: string | null;
+  items: { nombre: string; sku: string | null; unidad: string; cantidad: number }[];
+  referencia: string;
+}): CorreoProveedor {
+  const { proveedorNombre, items, referencia } = params;
+  const asunto = `Solicitud de cotización [${referencia}] — ${items.length} materiales`;
+  const cuerpo = [
+    `Estimados ${proveedorNombre ?? "proveedor"},`,
+    "",
+    "Solicitamos cotización para los siguientes materiales:",
+    "",
+    ...items.flatMap((it, i) => [
+      `${i + 1}) Material: ${it.nombre}`,
+      `   SKU: ${it.sku ?? "—"}`,
+      `   ${lineaCantidadCotizacion(it.cantidad, it.unidad).replace(/^• /, "")}`,
+      "",
+    ]),
+    "Por favor indíquennos precio unitario, tiempo de entrega y condiciones de pago de cada material.",
+    "",
+    "Quedamos atentos. Saludos.",
+  ].join("\n");
+  return { asunto, cuerpo };
+}
+
 // Confirmación de orden por convenio: el precio/cantidad/condiciones ya
 // están pactados de antemano — no se pide nada, se confirma. Usada por el
 // envío automático de la reposición (lib/casos-automaticos.ts) cuando el
