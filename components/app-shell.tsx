@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -8,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NotificacionesBell } from "@/components/notificaciones-bell";
 import { NotificacionesProvider } from "@/components/notificaciones-provider";
+import { CambiarPasswordModal } from "@/components/cambiar-password-form";
 import type { Profile } from "@/lib/types";
 import {
   Boxes,
@@ -24,6 +26,7 @@ import {
   Inbox,
   Route,
   HelpCircle,
+  KeyRound,
 } from "lucide-react";
 
 // Rediseño de menú (jul 2026): de 23 pestañas a 13 para el gestor,
@@ -108,6 +111,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [cambiandoPassword, setCambiandoPassword] = useState(false);
   const esGestor = profile.rol === "admin" || profile.rol === "gerente";
   const puedeGestionarCompras = esGestor || profile.rol === "compras";
   const items = NAV.filter(
@@ -117,6 +121,14 @@ export function AppShell({
       !(i.ocultoCompras && profile.rol === "compras") &&
       !(i.ocultoVentas && profile.rol === "ventas")
   );
+
+  function abrirCambiarPassword() {
+    if (DEMO) {
+      alert("Modo demo: la autenticación se activa al conectar Supabase.");
+      return;
+    }
+    setCambiandoPassword(true);
+  }
 
   async function signOut() {
     if (DEMO) {
@@ -195,8 +207,15 @@ export function AppShell({
             <ThemeToggle />
           </div>
           <button
-            onClick={signOut}
+            onClick={abrirCambiarPassword}
             className="mt-1 flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-muted transition-colors hover:bg-sidebar-surface hover:text-sidebar-fg"
+          >
+            <KeyRound className="h-[18px] w-[18px]" />
+            Cambiar contraseña
+          </button>
+          <button
+            onClick={signOut}
+            className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-muted transition-colors hover:bg-sidebar-surface hover:text-sidebar-fg"
           >
             <LogOut className="h-[18px] w-[18px]" />
             Salir
@@ -220,6 +239,13 @@ export function AppShell({
         <div className="flex items-center gap-1">
           <NotificacionesBell variant="mobile" />
           <ThemeToggle />
+          <button
+            onClick={abrirCambiarPassword}
+            aria-label="Cambiar contraseña"
+            className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-sidebar-muted hover:bg-sidebar-surface hover:text-sidebar-fg"
+          >
+            <KeyRound className="h-[18px] w-[18px]" />
+          </button>
           <button
             onClick={signOut}
             aria-label="Salir"
@@ -254,6 +280,11 @@ export function AppShell({
           );
         })}
       </nav>
+
+      <CambiarPasswordModal
+        open={cambiandoPassword}
+        onClose={() => setCambiandoPassword(false)}
+      />
     </div>
     </NotificacionesProvider>
   );
