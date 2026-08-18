@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as XLSX from "xlsx";
 import { Button, Card, Label, Select } from "@/components/ui";
+import { parseNumero } from "@/lib/utils";
 import {
   importarMateriales,
   type FilaImport,
@@ -56,28 +57,6 @@ function adivinar(campo: string, columnas: string[]): string {
     candidatos.some((a) => norm(c).includes(a))
   );
   return parcial ?? SIN;
-}
-
-/** Parseo robusto de números: quita $, %, unidades y maneja , o . como decimal. */
-function parseNumero(v: unknown): number {
-  if (typeof v === "number") return v;
-  let s = String(v ?? "").trim();
-  if (!s) return 0;
-  s = s.replace(/[^0-9.,-]/g, ""); // quita moneda, letras, espacios, %
-  if (!s) return 0;
-  const lastComma = s.lastIndexOf(",");
-  const lastDot = s.lastIndexOf(".");
-  if (lastComma > -1 && lastDot > -1) {
-    // El separador decimal es el que aparece más a la derecha.
-    if (lastComma > lastDot) s = s.replace(/\./g, "").replace(",", ".");
-    else s = s.replace(/,/g, "");
-  } else if (lastComma > -1) {
-    // Solo coma: "1,234" (miles) vs "85,5" (decimal).
-    s = /,\d{3}$/.test(s) ? s.replace(/,/g, "") : s.replace(",", ".");
-  }
-  s = s.replace(/,/g, "");
-  const n = Number(s);
-  return Number.isFinite(n) ? n : 0;
 }
 
 type Crudas = unknown[][];

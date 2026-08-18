@@ -36,6 +36,32 @@ export function exportarCSV(
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Parseo robusto de números escritos a mano o en Excel: quita $, %, unidades
+ * y maneja , o . como separador decimal (extraído de importar-view.tsx para
+ * reusarlo también en la importación de conteos capturados en Excel).
+ */
+export function parseNumero(v: unknown): number {
+  if (typeof v === "number") return v;
+  let s = String(v ?? "").trim();
+  if (!s) return 0;
+  s = s.replace(/[^0-9.,-]/g, ""); // quita moneda, letras, espacios, %
+  if (!s) return 0;
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  if (lastComma > -1 && lastDot > -1) {
+    // El separador decimal es el que aparece más a la derecha.
+    if (lastComma > lastDot) s = s.replace(/\./g, "").replace(",", ".");
+    else s = s.replace(/,/g, "");
+  } else if (lastComma > -1) {
+    // Solo coma: "1,234" (miles) vs "85,5" (decimal).
+    s = /,\d{3}$/.test(s) ? s.replace(/,/g, "") : s.replace(",", ".");
+  }
+  s = s.replace(/,/g, "");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** Formatea un número como moneda en pesos mexicanos. */
 export function formatMoney(value: number | null | undefined): string {
   const n = typeof value === "number" ? value : 0;
