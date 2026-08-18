@@ -564,6 +564,28 @@ export const store = {
       });
   },
 
+  // Alimenta la participación de ventas/utilidad de Clasificación ABC/XYZ
+  // (lib/data.ts -> getVentasEntregadasPorMaterial) -- mismo criterio que la
+  // versión real: solo ventas ENTREGADAS, filtradas por updated_at del caso
+  // (aproximación de cuándo se entregó, no hay entregado_at dedicado).
+  getLineasVentaEntregadas(
+    ventanaDias: number
+  ): { material_id: string; cantidad: number; precio_unitario: number }[] {
+    const desde = Date.now() - ventanaDias * 86400000;
+    const casosEntregadosIds = new Set(
+      db.casos_venta
+        .filter((cv) => cv.estado === "entregado" && new Date(cv.updated_at).getTime() >= desde)
+        .map((cv) => cv.id)
+    );
+    return db.casos_venta_items
+      .filter((it) => casosEntregadosIds.has(it.caso_venta_id))
+      .map((it) => ({
+        material_id: it.material_id,
+        cantidad: it.cantidad,
+        precio_unitario: it.precio_unitario,
+      }));
+  },
+
   getSalidas(): { material_id: string; created_at: string; cantidad: number }[] {
     return db.movimientos
       .filter((mv) => mv.tipo === "salida" && mv.material_id !== null)

@@ -1,6 +1,12 @@
 // Clasificación ABC (por valor de consumo) × XYZ (por variabilidad de la
 // demanda) — dice qué materiales merecen conteo cíclico frecuente y punto
-// de reorden fino, y cuáles no valen ese esfuerzo.
+// de reorden fino, y cuáles no valen ese esfuerzo. Al final del archivo
+// también vive el análisis de participación de ventas vs. utilidad
+// (idea de junta, ejemplo "Shark Tank": un producto con 40% de las ventas
+// pero solo 3% de la utilidad) — eje DISTINTO al de ABC: ABC pesa por
+// costo de lo que sale de inventario, esto pesa por ingreso/utilidad real
+// de venta ya entregada. Viven en el mismo archivo/pantalla a propósito
+// (Clasificación ABC/XYZ) en vez de una pestaña nueva.
 //
 //   ABC: ordena los materiales por valor anual consumido (demanda × costo)
 //   de mayor a menor y corta por % acumulado (Pareto) —
@@ -118,6 +124,62 @@ export function clasificarABCXYZ(
       diasHistorial: it.diasHistorial,
       disponible: it.disponible,
       razonNoDisponible: it.razonNoDisponible,
+    };
+  });
+}
+
+/* ============================================================
+   Participación de ventas vs. utilidad
+   ============================================================ */
+
+export interface ItemParticipacion {
+  materialId: string;
+  ingresoTotal: number;
+  pctIngreso: number;
+  utilidadTotal: number;
+  pctUtilidad: number;
+  // utilidad% ÷ ingreso% -- cerca de 1 es "gana lo que le toca por su
+  // tamaño"; muy por debajo de 1 es el foco del análisis: pesa mucho en
+  // ventas pero no regresa la utilidad proporcional (candidato a
+  // reconsiderar si seguir comprándolo). null si no tuvo ventas en la
+  // ventana -- no se confunde con "índice 0", que sí sería una alerta.
+  indiceEficiencia: number | null;
+  // Nombre distinto a ItemClasificado.disponible (datos de demanda) a
+  // propósito: MaterialClasificado combina ambas interfaces, y si se
+  // llamaran igual el spread en getClasificacionABCXYZ (lib/data.ts) pisaría
+  // silenciosamente el "disponible" de ABC/XYZ con este.
+  ventasDisponibles: boolean;
+}
+
+/** ingresoTotal/utilidadTotal ya vienen agregados por material (ver
+ *  getVentasEntregadasPorMaterial en lib/data.ts: Σ precio_unitario×cantidad
+ *  y Σ (precio_unitario - costo_unitario)×cantidad de ventas ENTREGADAS). */
+export function calcularParticipacionUtilidad(
+  ventas: { materialId: string; ingresoTotal: number; utilidadTotal: number }[]
+): ItemParticipacion[] {
+  const ingresoGlobal = ventas.reduce((a, v) => a + v.ingresoTotal, 0);
+  const utilidadGlobal = ventas.reduce((a, v) => a + v.utilidadTotal, 0);
+
+  return ventas.map((v) => {
+    const ventasDisponibles = v.ingresoTotal > 0;
+    const pctIngreso = ingresoGlobal > 0 ? v.ingresoTotal / ingresoGlobal : 0;
+    // La utilidad total de la empresa puede ser negativa o cero en una
+    // ventana corta -- dividir entre eso no da un % interpretable, se deja
+    // sin dato en vez de mostrar un número engañoso.
+    const pctUtilidad =
+      ventasDisponibles && utilidadGlobal > 0 ? v.utilidadTotal / utilidadGlobal : 0;
+    const indiceEficiencia =
+      ventasDisponibles && pctIngreso > 0 && utilidadGlobal > 0
+        ? pctUtilidad / pctIngreso
+        : null;
+    return {
+      materialId: v.materialId,
+      ingresoTotal: v.ingresoTotal,
+      pctIngreso,
+      utilidadTotal: v.utilidadTotal,
+      pctUtilidad,
+      indiceEficiencia,
+      ventasDisponibles,
     };
   });
 }

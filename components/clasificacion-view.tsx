@@ -4,10 +4,21 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Badge, Card, Input, Select } from "@/components/ui";
 import { BotonExportarCSV } from "@/components/boton-exportar-csv";
+import { InfoTooltip } from "@/components/info-tooltip";
 import { formatMoney } from "@/lib/utils";
 import type { MaterialClasificado } from "@/lib/data";
 import type { ClaseABC, ClaseXYZ } from "@/lib/clasificacion-abc-xyz";
-import { Boxes } from "lucide-react";
+import { Boxes, TrendingDown } from "lucide-react";
+
+// Debajo de esto, un producto se marca "candidato a reconsiderar": pesa
+// mucho en ventas pero regresa mucho menos de lo que le tocaría en
+// utilidad (índice = %utilidad ÷ %ingreso). 0.5 = se queda con menos de la
+// mitad de la utilidad "justa" para su tamaño -- umbral elegido a ojo, no
+// una convención estándar como los cortes de Pareto de ABC.
+const UMBRAL_INDICE_BAJO = 0.5;
+// Ignora ruido de productos con ventas mínimas -- un producto con 0.5% de
+// las ventas no merece la etiqueta aunque su índice salga bajo.
+const UMBRAL_PARTICIPACION_MINIMA = 0.03;
 
 const TONO_ABC: Record<ClaseABC, "ok" | "warn" | "neutral"> = {
   A: "ok",
@@ -61,12 +72,71 @@ export function ClasificacionView({ items }: { items: MaterialClasificado[] }) {
     return mapa;
   }, [items]);
 
+  // Pesan mucho en ventas pero regresan poca utilidad para su tamaño --
+  // peor índice primero, es la lista que responde "¿qué dejo de comprar?".
+  const candidatos = useMemo(
+    () =>
+      items
+        .filter(
+          (it) =>
+            it.indiceEficiencia !== null &&
+            it.indiceEficiencia < UMBRAL_INDICE_BAJO &&
+            it.pctIngreso >= UMBRAL_PARTICIPACION_MINIMA
+        )
+        .sort((a, b) => a.indiceEficiencia! - b.indiceEficiencia!),
+    [items]
+  );
+
   const clasesABC: ClaseABC[] = ["A", "B", "C"];
   const clasesXYZ: (ClaseXYZ | "sin datos")[] = ["X", "Y", "Z", "sin datos"];
 
   return (
     <div className="mx-auto max-w-7xl space-y-5">
       {/* Sin h1 propio: vive como tab dentro de Análisis. */}
+
+      {/* Candidatos a reconsiderar: participación de ventas vs. utilidad */}
+      {candidatos.length > 0 && (
+        <Card className="border-amber-500/30 bg-amber-500/5 p-5">
+          <h2 className="mb-1 flex items-center gap-2 font-semibold text-fg">
+            <TrendingDown className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            Candidatos a reconsiderar
+            <InfoTooltip>
+              <p className="mb-1.5 font-semibold text-fg">Índice de eficiencia</p>
+              <p>Índice = % de la utilidad ÷ % de las ventas, de ventas ya entregadas.</p>
+              <p className="mt-1.5">
+                Cerca de 1 = el producto gana lo que le toca por su tamaño. Muy por debajo de
+                1 = pesa mucho en ventas pero regresa poca utilidad — vale la pena preguntarse
+                si conviene seguir comprándolo.
+              </p>
+            </InfoTooltip>
+          </h2>
+          <p className="mb-3 text-sm text-muted">
+            Mucha participación en ventas, poca utilidad para su tamaño — de las ventas
+            entregadas en los últimos 90 días.
+          </p>
+          <ul className="divide-y divide-line">
+            {candidatos.slice(0, 8).map((it) => (
+              <li key={it.materialId} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <Link
+                  href={`/materiales/${it.materialId}`}
+                  className="min-w-0 truncate font-medium text-fg hover:text-accent"
+                >
+                  {it.nombre}
+                  {it.sku && <span className="ml-2 text-xs text-faint">{it.sku}</span>}
+                </Link>
+                <span className="shrink-0 text-xs text-muted">
+                  {(it.pctIngreso * 100).toFixed(1)}% de ventas ·{" "}
+                  {(it.pctUtilidad * 100).toFixed(1)}% de utilidad · índice{" "}
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    {it.indiceEficiencia!.toFixed(2)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       {/* Matriz resumen */}
       <Card className="overflow-x-auto p-5">
         <h2 className="mb-3 font-semibold text-fg">Matriz ABC × XYZ</h2>
@@ -180,6 +250,9 @@ export function ClasificacionView({ items }: { items: MaterialClasificado[] }) {
                   ? Math.round(it.coeficienteVariacion * 100) / 100
                   : "",
                 Clase_XYZ: it.claseXYZ,
+                "% de las ventas": Math.round(it.pctIngreso * 1000) / 10,
+                "% de la utilidad": Math.round(it.pctUtilidad * 1000) / 10,
+                "Índice de eficiencia": it.indiceEficiencia?.toFixed(2) ?? "",
               }))}
               label="CSV"
             />
@@ -201,7 +274,9 @@ export function ClasificacionView({ items }: { items: MaterialClasificado[] }) {
                   <th className="py-2 pr-3 text-right font-medium">% acum.</th>
                   <th className="py-2 pr-3 text-center font-medium">ABC</th>
                   <th className="py-2 pr-3 text-center font-medium">XYZ</th>
-                  <th className="py-2 text-right font-medium">Historial</th>
+                  <th className="py-2 pr-3 text-right font-medium">Historial</th>
+                  <th className="py-2 pr-3 text-right font-medium">% ventas</th>
+                  <th className="py-2 text-right font-medium">Índice</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -232,10 +307,28 @@ export function ClasificacionView({ items }: { items: MaterialClasificado[] }) {
                         {it.claseXYZ === "sin datos" ? "?" : it.claseXYZ}
                       </Badge>
                     </td>
-                    <td className="py-2.5 text-right text-xs text-faint">
+                    <td className="py-2.5 pr-3 text-right text-xs text-faint">
                       {it.disponible
                         ? `${it.diasHistorial} días`
                         : it.razonNoDisponible}
+                    </td>
+                    <td className="py-2.5 pr-3 text-right text-muted">
+                      {it.ventasDisponibles ? `${(it.pctIngreso * 100).toFixed(1)}%` : "—"}
+                    </td>
+                    <td className="py-2.5 text-right">
+                      {it.indiceEficiencia === null ? (
+                        <span className="text-xs text-faint">sin ventas</span>
+                      ) : (
+                        <span
+                          className={
+                            it.indiceEficiencia < UMBRAL_INDICE_BAJO
+                              ? "font-semibold text-amber-600 dark:text-amber-400"
+                              : "text-fg"
+                          }
+                        >
+                          {it.indiceEficiencia.toFixed(2)}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

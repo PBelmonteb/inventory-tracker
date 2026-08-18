@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clasificarABCXYZ } from "@/lib/clasificacion-abc-xyz";
+import { calcularParticipacionUtilidad, clasificarABCXYZ } from "@/lib/clasificacion-abc-xyz";
 
 const AHORA = new Date("2026-07-15T00:00:00.000Z");
 
@@ -103,5 +103,54 @@ describe("clasificarABCXYZ — XYZ por variabilidad de la demanda", () => {
     );
     expect(resultado[0].coeficienteVariacion).toBeNull();
     expect(resultado[0].claseXYZ).toBe("sin datos");
+  });
+});
+
+describe("calcularParticipacionUtilidad — participación de ventas vs. utilidad", () => {
+  it("caso Shark Tank: mucha participación en ventas, poca utilidad -> índice bajo", () => {
+    const resultado = calcularParticipacionUtilidad([
+      // 40% de las ventas ($140 de $350 totales) pero casi nada de utilidad.
+      { materialId: "producto-estrella-falso", ingresoTotal: 140, utilidadTotal: 3 },
+      { materialId: "resto", ingresoTotal: 210, utilidadTotal: 97 },
+    ]);
+    const estrellaFalsa = resultado.find((r) => r.materialId === "producto-estrella-falso")!;
+    expect(estrellaFalsa.pctIngreso).toBeCloseTo(140 / 350, 4);
+    expect(estrellaFalsa.pctUtilidad).toBeCloseTo(3 / 100, 4);
+    // pctUtilidad (0.03) / pctIngreso (0.4) = 0.075 -- muy por debajo de 1.
+    expect(estrellaFalsa.indiceEficiencia).toBeCloseTo(0.075, 3);
+    expect(estrellaFalsa.indiceEficiencia!).toBeLessThan(0.5);
+  });
+
+  it("un producto que gana proporcional a su tamaño da índice cercano a 1", () => {
+    const resultado = calcularParticipacionUtilidad([
+      { materialId: "parejo", ingresoTotal: 100, utilidadTotal: 20 },
+      { materialId: "otro", ingresoTotal: 100, utilidadTotal: 20 },
+    ]);
+    expect(resultado[0].indiceEficiencia).toBeCloseTo(1, 4);
+  });
+
+  it("sin ventas en la ventana -> disponible false e índice null, no 0 engañoso", () => {
+    const resultado = calcularParticipacionUtilidad([
+      { materialId: "sin-ventas", ingresoTotal: 0, utilidadTotal: 0 },
+      { materialId: "con-ventas", ingresoTotal: 100, utilidadTotal: 20 },
+    ]);
+    const sinVentas = resultado.find((r) => r.materialId === "sin-ventas")!;
+    expect(sinVentas.ventasDisponibles).toBe(false);
+    expect(sinVentas.indiceEficiencia).toBeNull();
+  });
+
+  it("no truena con utilidad global cero o negativa (se queda sin dato, no divide entre cero)", () => {
+    const resultado = calcularParticipacionUtilidad([
+      { materialId: "a", ingresoTotal: 100, utilidadTotal: -10 },
+      { materialId: "b", ingresoTotal: 50, utilidadTotal: -5 },
+    ]);
+    for (const r of resultado) {
+      expect(Number.isFinite(r.pctUtilidad)).toBe(true);
+      expect(r.indiceEficiencia).toBeNull();
+    }
+  });
+
+  it("arreglo vacío no truena", () => {
+    expect(calcularParticipacionUtilidad([])).toEqual([]);
   });
 });

@@ -4,7 +4,12 @@ import { getCurrentProfile } from "@/lib/auth";
 import { store } from "@/lib/mock/store";
 import { calcularStockSugerido, type StockSugerido } from "@/lib/stock-sugerido";
 import { calcularEOQ, type ResultadoEOQ } from "@/lib/eoq";
-import { clasificarABCXYZ, type ItemClasificado } from "@/lib/clasificacion-abc-xyz";
+import {
+  calcularParticipacionUtilidad,
+  clasificarABCXYZ,
+  type ItemClasificado,
+  type ItemParticipacion,
+} from "@/lib/clasificacion-abc-xyz";
 import {
   calcularScorecardProveedores,
   type CasoRecibidoParaScorecard,
@@ -547,13 +552,69 @@ export async function getDatosClasificacionABCXYZ(): Promise<{
   return { materiales, salidasPorMaterial };
 }
 
-export interface MaterialClasificado extends ItemClasificado {
+// Ingreso/utilidad real por material, de ventas ya ENTREGADAS (no
+// cotizaciones ni casos en curso) en la misma ventana que la clasificación
+// ABC/XYZ -- alimenta calcularParticipacionUtilidad (lib/clasificacion-
+// abc-xyz.ts). La utilidad usa el costo_unitario ACTUAL del material, igual
+// simplificación que "Margen por material" en Reportes (no el WAC histórico
+// al momento de cada venta) -- consistente con el resto de la app.
+async function getVentasEntregadasPorMaterial(
+  materiales: MaterialParaClasificar[]
+): Promise<{ materialId: string; ingresoTotal: number; utilidadTotal: number }[]> {
+  const costoPorMaterial = new Map(materiales.map((m) => [m.id, m.costo_unitario]));
+
+  let lineas: { material_id: string; cantidad: number; precio_unitario: number }[];
+  if (DEMO) {
+    lineas = store.getLineasVentaEntregadas(VENTANA_DIAS_CLASIFICACION);
+  } else {
+    const supabase = await createClient();
+    const desde = new Date(
+      Date.now() - VENTANA_DIAS_CLASIFICACION * 86400000
+    ).toISOString();
+    // Se filtra por updated_at del caso (aproximación de "cuándo se marcó
+    // entregado" -- no hay un entregado_at dedicado) en vez de created_at,
+    // que sería la fecha de la cotización original, no de la venta real.
+    const { data } = await supabase
+      .from("casos_venta_items")
+      .select("material_id, cantidad, precio_unitario, casos_venta!inner(estado, updated_at)")
+      .eq("casos_venta.estado", "entregado")
+      .gte("casos_venta.updated_at", desde);
+    lineas = ((data ?? []) as unknown as {
+      material_id: string;
+      cantidad: number;
+      precio_unitario: number;
+    }[]);
+  }
+
+  const porMaterial = new Map<string, { ingresoTotal: number; utilidadTotal: number }>();
+  for (const l of lineas) {
+    const costo = costoPorMaterial.get(l.material_id) ?? 0;
+    const ingreso = l.precio_unitario * l.cantidad;
+    const utilidad = (l.precio_unitario - costo) * l.cantidad;
+    const actual = porMaterial.get(l.material_id) ?? { ingresoTotal: 0, utilidadTotal: 0 };
+    porMaterial.set(l.material_id, {
+      ingresoTotal: actual.ingresoTotal + ingreso,
+      utilidadTotal: actual.utilidadTotal + utilidad,
+    });
+  }
+
+  return materiales.map((m) => ({
+    materialId: m.id,
+    ingresoTotal: porMaterial.get(m.id)?.ingresoTotal ?? 0,
+    utilidadTotal: porMaterial.get(m.id)?.utilidadTotal ?? 0,
+  }));
+}
+
+export interface MaterialClasificado extends ItemClasificado, ItemParticipacion {
   nombre: string;
   sku: string | null;
 }
 
 // Junta la data cruda (arriba) con el cálculo puro (lib/clasificacion-abc-xyz.ts)
 // y le pega nombre/sku de vuelta — lo único que hace falta para pintar la tabla.
+// Combina dos ejes independientes en la misma pantalla: ABC/XYZ (costo de lo
+// que sale de inventario) y participación de ventas/utilidad (ingreso real
+// ya entregado) -- ver nota al inicio de clasificacion-abc-xyz.ts.
 export async function getClasificacionABCXYZ(): Promise<MaterialClasificado[]> {
   const { materiales, salidasPorMaterial } = await getDatosClasificacionABCXYZ();
   const clasificados = clasificarABCXYZ(
@@ -563,12 +624,19 @@ export async function getClasificacionABCXYZ(): Promise<MaterialClasificado[]> {
       salidas: salidasPorMaterial[m.id] ?? [],
     }))
   );
+  const ventas = await getVentasEntregadasPorMaterial(materiales);
+  const participacion = calcularParticipacionUtilidad(ventas);
+  const participacionPorId = new Map(participacion.map((p) => [p.materialId, p]));
   const porId = new Map(materiales.map((m) => [m.id, m]));
-  return clasificados.map((c) => ({
-    ...c,
-    nombre: porId.get(c.materialId)?.nombre ?? "—",
-    sku: porId.get(c.materialId)?.sku ?? null,
-  }));
+  return clasificados.map((c) => {
+    const p = participacionPorId.get(c.materialId)!;
+    return {
+      ...c,
+      ...p,
+      nombre: porId.get(c.materialId)?.nombre ?? "—",
+      sku: porId.get(c.materialId)?.sku ?? null,
+    };
+  });
 }
 
 // Tope de compras recibidas consideradas para el scorecard — mismo criterio
