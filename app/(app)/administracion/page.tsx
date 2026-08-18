@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { AdministracionView } from "@/components/administracion-view";
-import { getCurrentProfile, esGestor } from "@/lib/auth";
-import { listarUsuarios } from "@/lib/actions/usuarios";
+import { getCurrentProfile, esGestor, esAdmin } from "@/lib/auth";
+import { listarUsuarios, type UsuarioListado } from "@/lib/actions/usuarios";
 import { obtenerConfiguracionAutorizacion } from "@/lib/actions/autorizacion";
 import {
   getAuditoria,
@@ -13,7 +13,11 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const TABS = [
+// Usuarios/Auditoría/Precios son territorio de admin (dueño) — un gerente
+// se queda con Catálogos/Importar/Etiquetas, las tareas operativas de
+// catálogo. Ver análisis de la sesión.
+const TABS_GERENTE = ["catalogos", "importar", "etiquetas"] as const;
+const TABS_ADMIN = [
   "catalogos",
   "usuarios",
   "auditoria",
@@ -28,43 +32,54 @@ export default async function AdministracionPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   // Junta Catálogos, Usuarios, Auditoría, Precios, Importar y Etiquetas —
-  // antes 6 páginas sueltas, todas gestor-only (Usuarios/Auditoría además
-  // filtran algunas cosas solo para admin, eso lo sigue resolviendo cada
-  // vista tal cual ya lo hacía).
+  // antes 6 páginas sueltas, todas gestor-only (Usuarios/Auditoría/Precios
+  // además filtran para admin, eso lo sigue resolviendo cada vista).
   const profile = await getCurrentProfile();
   if (!esGestor(profile)) redirect("/inventario");
+  const esAdminUser = esAdmin(profile);
 
   const sp = await searchParams;
-  const tabInicial = TABS.find((t) => t === sp.tab) ?? "catalogos";
+  const tabsPermitidas = esAdminUser ? TABS_ADMIN : TABS_GERENTE;
+  const tabInicial = tabsPermitidas.find((t) => t === sp.tab) ?? tabsPermitidas[0];
 
-  const [
-    categorias,
-    ubicaciones,
-    proveedores,
-    usuariosRes,
-    configAutorizacion,
-    registrosAuditoria,
-    materiales,
-  ] = await Promise.all([
+  // Catálogos/Importar/Etiquetas son de todo gestor; Usuarios/Auditoría/
+  // Precios ni se consultan si quien pide la página no es admin — mismo
+  // criterio que Análisis: no serializar hacia el navegador lo que no
+  // toca ver, no basta con esconder el tab en el cliente.
+  const [categorias, ubicaciones, proveedores, materiales] = await Promise.all([
     getCategorias(),
     getUbicaciones(),
     getProveedores(),
-    listarUsuarios(),
-    obtenerConfiguracionAutorizacion(),
-    getAuditoria(),
     getMateriales(),
   ]);
+
+  let usuarios: UsuarioListado[] = [];
+  let errorUsuariosInicial: string | null = null;
+  let umbralInicial = 0;
+  let registrosAuditoria: Awaited<ReturnType<typeof getAuditoria>> = [];
+
+  if (esAdminUser) {
+    const [usuariosRes, configAutorizacion, auditoria] = await Promise.all([
+      listarUsuarios(),
+      obtenerConfiguracionAutorizacion(),
+      getAuditoria(),
+    ]);
+    usuarios = usuariosRes.ok ? usuariosRes.usuarios : [];
+    errorUsuariosInicial = usuariosRes.ok ? null : usuariosRes.error;
+    umbralInicial = configAutorizacion.monto_umbral_admin;
+    registrosAuditoria = auditoria;
+  }
 
   return (
     <AdministracionView
       categorias={categorias}
       ubicaciones={ubicaciones}
       proveedores={proveedores}
-      usuarios={usuariosRes.ok ? usuariosRes.usuarios : []}
-      errorUsuariosInicial={usuariosRes.ok ? null : usuariosRes.error}
+      usuarios={usuarios}
+      errorUsuariosInicial={errorUsuariosInicial}
       miId={profile!.id}
-      esAdmin={profile!.rol === "admin"}
-      umbralInicial={configAutorizacion.monto_umbral_admin}
+      esAdmin={esAdminUser}
+      umbralInicial={umbralInicial}
       registrosAuditoria={registrosAuditoria}
       materiales={materiales}
       tabInicial={tabInicial}

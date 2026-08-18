@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mensajeSupabase } from "@/lib/supabase/errors";
-import { getCurrentProfile, esGestor } from "@/lib/auth";
+import { getCurrentProfile, esAdmin } from "@/lib/auth";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
 import type { EstadoCuenta, Rol } from "@/lib/types";
@@ -23,12 +23,15 @@ export interface UsuarioListado {
 
 const ROLES: Rol[] = ["admin", "gerente", "operario", "compras", "ventas"];
 
-// Verifica que quien llama sea gestor. Se re-checa aquí (no solo en la UI)
-// porque las acciones de este archivo usan el cliente service_role, que
-// salta el RLS por completo: esta función es el único muro real.
-async function requireGestor() {
+// Verifica que quien llama sea admin -- no gestor (admin+gerente): un
+// gerente asignando roles (incluido "admin") es exactamente el hueco que
+// cierra esto, ver [[gestion-usuarios]] / vista Administración. Se
+// re-checa aquí (no solo en la UI) porque las acciones de este archivo
+// usan el cliente service_role, que salta el RLS por completo: esta
+// función es el único muro real.
+async function requireAdmin() {
   const profile = await getCurrentProfile();
-  if (!profile || !esGestor(profile)) {
+  if (!profile || !esAdmin(profile)) {
     throw new Error("No autorizado");
   }
   return profile;
@@ -43,7 +46,7 @@ export async function listarUsuarios(): Promise<
       error: "La gestión de usuarios requiere el backend de Supabase conectado.",
     };
   try {
-    await requireGestor();
+    await requireAdmin();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -128,7 +131,7 @@ export async function crearUsuario(formData: FormData): Promise<ActionResult> {
       error: "La gestión de usuarios requiere el backend de Supabase conectado.",
     };
   try {
-    await requireGestor();
+    await requireAdmin();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -160,7 +163,7 @@ export async function crearUsuario(formData: FormData): Promise<ActionResult> {
 
   // El trigger handle_new_user ya creó el profile (rol "operario",
   // estado_cuenta "pendiente" por defecto) -- se ajusta aquí al rol elegido
-  // y se aprueba de una vez: un gestor ya vetó esta cuenta al crearla a
+  // y se aprueba de una vez: un admin ya vetó esta cuenta al crearla a
   // mano, pedirle una segunda aprobación sería puro trabajo de más.
   if (data.user) {
     const { error: updError } = await admin
@@ -182,7 +185,7 @@ export async function aprobarCuenta(userId: string, rol: Rol): Promise<ActionRes
       error: "La gestión de usuarios requiere el backend de Supabase conectado.",
     };
   try {
-    await requireGestor();
+    await requireAdmin();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -203,7 +206,7 @@ export async function aprobarCuenta(userId: string, rol: Rol): Promise<ActionRes
 // (no se borra, mismo criterio que un caso de compra rechazado: se guarda
 // el rastro en vez de desaparecerlo). La persona ve el motivo genérico en
 // /pendiente; si quiere reintentar con otro correo, tendría que ser un
-// gestor quien la borre desde aquí más adelante si hace falta.
+// admin quien la borre desde aquí más adelante si hace falta.
 export async function rechazarCuenta(userId: string): Promise<ActionResult> {
   if (DEMO)
     return {
@@ -211,7 +214,7 @@ export async function rechazarCuenta(userId: string): Promise<ActionResult> {
       error: "La gestión de usuarios requiere el backend de Supabase conectado.",
     };
   try {
-    await requireGestor();
+    await requireAdmin();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -238,7 +241,7 @@ export async function cambiarRolUsuario(
     };
   let yo;
   try {
-    yo = await requireGestor();
+    yo = await requireAdmin();
   } catch {
     return { ok: false, error: "No autorizado" };
   }
@@ -271,7 +274,7 @@ export async function cambiarEstadoUsuario(
     };
   let yo;
   try {
-    yo = await requireGestor();
+    yo = await requireAdmin();
   } catch {
     return { ok: false, error: "No autorizado" };
   }

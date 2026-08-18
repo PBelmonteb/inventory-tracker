@@ -19,11 +19,19 @@ import type {
 
 type TabId = "catalogos" | "usuarios" | "auditoria" | "precios" | "importar" | "etiquetas";
 
-const TABS: { id: TabId; label: string; Icon: typeof Settings }[] = [
+// soloAdmin: territorio de dueño (quién tiene acceso al sistema, vigilancia
+// sobre lo que hace cada quien, precios de venta) — un gerente se queda con
+// las tareas operativas de catálogo. Ver análisis de la sesión.
+const TODAS_LAS_TABS: {
+  id: TabId;
+  label: string;
+  Icon: typeof Settings;
+  soloAdmin?: boolean;
+}[] = [
   { id: "catalogos", label: "Catálogos", Icon: Settings },
-  { id: "usuarios", label: "Usuarios", Icon: UserCog },
-  { id: "auditoria", label: "Auditoría", Icon: ShieldCheck },
-  { id: "precios", label: "Precios", Icon: Tag },
+  { id: "usuarios", label: "Usuarios", Icon: UserCog, soloAdmin: true },
+  { id: "auditoria", label: "Auditoría", Icon: ShieldCheck, soloAdmin: true },
+  { id: "precios", label: "Precios", Icon: Tag, soloAdmin: true },
   { id: "importar", label: "Importar", Icon: Upload },
   { id: "etiquetas", label: "Etiquetas", Icon: QrCode },
 ];
@@ -32,6 +40,12 @@ const TABS: { id: TabId; label: string; Icon: typeof Settings }[] = [
 // todas son "cosas que se tocan poco, no todos los días", mismo criterio
 // de agrupar que Análisis (lo que se usa junto, se ve junto). Cada vista
 // se reusa tal cual.
+//
+// usuarios/errorUsuariosInicial/umbralInicial/registrosAuditoria llegan
+// vacíos cuando quien ve esto no es admin -- la página server-side ya ni
+// los consulta (mismo criterio que Análisis: no serializar lo que no
+// toca ver). materiales sí se manda siempre porque Etiquetas (de
+// cualquier gestor) también lo necesita, no solo Precios.
 export function AdministracionView({
   categorias,
   ubicaciones,
@@ -57,7 +71,11 @@ export function AdministracionView({
   materiales: MaterialConRelaciones[];
   tabInicial?: TabId;
 }) {
-  const [tab, setTab] = useState<TabId>(tabInicial ?? "catalogos");
+  const TABS = esAdmin ? TODAS_LAS_TABS : TODAS_LAS_TABS.filter((t) => !t.soloAdmin);
+  const primeraTab = TABS[0].id;
+  const [tab, setTab] = useState<TabId>(
+    tabInicial && TABS.some((t) => t.id === tabInicial) ? tabInicial : primeraTab
+  );
 
   return (
     <div className="p-4 md:p-8">
@@ -96,7 +114,7 @@ export function AdministracionView({
           proveedores={proveedores}
         />
       )}
-      {tab === "usuarios" && (
+      {esAdmin && tab === "usuarios" && (
         <UsuariosView
           usuarios={usuarios}
           errorInicial={errorUsuariosInicial}
@@ -105,8 +123,8 @@ export function AdministracionView({
           umbralInicial={umbralInicial}
         />
       )}
-      {tab === "auditoria" && <AuditoriaView registros={registrosAuditoria} />}
-      {tab === "precios" && <PreciosView materiales={materiales} />}
+      {esAdmin && tab === "auditoria" && <AuditoriaView registros={registrosAuditoria} />}
+      {esAdmin && tab === "precios" && <PreciosView materiales={materiales} />}
       {tab === "importar" && <ImportarView />}
       {tab === "etiquetas" && <EtiquetasView materiales={materiales} />}
     </div>

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { mensajeSupabase } from "@/lib/supabase/errors";
 import { DEMO } from "@/lib/config";
 import { store } from "@/lib/mock/store";
+import { getCurrentProfile, esAdmin } from "@/lib/auth";
 import { getEOQ, getStockSugerido, getStockSugeridoTodos } from "@/lib/data";
 import type { StockSugerido } from "@/lib/stock-sugerido";
 import type { ResultadoEOQ } from "@/lib/eoq";
@@ -144,9 +145,19 @@ export async function actualizarMaterial(
   return { ok: true, id };
 }
 
+// Precios de venta es territorio de admin (dueño), no de gerente -- la
+// pestaña "Precios" de Administración ya no se le muestra a un gerente,
+// pero esta acción es el muro real (RLS de materiales sigue abierto a
+// cualquier gestor, ver 0002_rls.sql). Nota: el formulario general de
+// editar material (editarMaterial más abajo) todavía deja tocar
+// precio_venta campo por campo -- ese hueco es previo a este cambio y
+// queda sin cerrar por ahora (edición general de materiales sí sigue
+// siendo trabajo de gerente, no quiero bloquear todo el formulario).
 export async function actualizarPreciosVenta(
   updates: { id: string; precio_venta: number }[]
 ): Promise<ActionResult> {
+  const yo = await getCurrentProfile();
+  if (!esAdmin(yo)) return { ok: false, error: "No autorizado" };
   if (updates.length === 0) return { ok: false, error: "Nada que guardar" };
   const invalido = updates.find(
     (u) => !u.id || !Number.isFinite(u.precio_venta) || u.precio_venta < 0

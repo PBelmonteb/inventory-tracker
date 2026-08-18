@@ -16,19 +16,36 @@ import type { EstadoActualKPIs } from "@/lib/kpis-dashboard";
 
 type TabId = "reportes" | "clasificacion" | "mrp" | "dashboard" | "ai-insights";
 
-const TABS: { id: TabId; label: string; Icon: typeof BarChart3 }[] = [
-  { id: "reportes", label: "Reportes", Icon: BarChart3 },
+// soloAdmin: territorio de dueño (dinero — márgenes, tendencia de KPIs
+// financieros, IA sobre esos datos), no del encargado. Un gerente solo ve
+// Clasificación y MRP -- responden "qué compro/produzco", no "cómo va el
+// negocio". Ver memoria de la sesión: análisis de qué debería ver cada rol.
+const TODAS_LAS_TABS: {
+  id: TabId;
+  label: string;
+  Icon: typeof BarChart3;
+  soloAdmin?: boolean;
+}[] = [
+  { id: "reportes", label: "Reportes", Icon: BarChart3, soloAdmin: true },
   { id: "clasificacion", label: "Clasificación ABC/XYZ", Icon: Grid3x3 },
   { id: "mrp", label: "MRP", Icon: GitBranch },
-  { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
-  { id: "ai-insights", label: "AI Insights", Icon: Sparkles },
+  { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard, soloAdmin: true },
+  { id: "ai-insights", label: "AI Insights", Icon: Sparkles, soloAdmin: true },
 ];
 
 // Junta 3 páginas que antes vivían sueltas en el menú (Reportes,
 // Clasificación, MRP) — todas son "análisis con los datos ya existentes",
 // mismo criterio de agrupar que ya se usó en Proveedores (pestañas). Cada
 // vista se reusa tal cual, esto solo decide cuál se muestra.
+//
+// Los props financieros (reportes/historial/tendencia/vistas/
+// aiInsightsConfigurado) llegan undefined cuando quien ve esto no es
+// admin -- la página server-side ya ni siquiera los consulta (mismo
+// criterio "a ciegas" que el conteo cíclico: si no toca verlo, no se
+// serializa hacia el navegador). El filtro de tabs de aquí es la segunda
+// capa, no la única.
 export function AnalisisView({
+  esAdmin,
   reportes,
   diasParado,
   materiales,
@@ -44,22 +61,27 @@ export function AnalisisView({
   tabInicial,
   aiInsightsConfigurado,
 }: {
-  reportes: Reportes;
+  esAdmin: boolean;
+  reportes?: Reportes;
   diasParado: number;
-  materiales: MaterialConRelaciones[];
-  historial: HistorialPrecio[];
+  materiales?: MaterialConRelaciones[];
+  historial?: HistorialPrecio[];
   clasificacion: MaterialClasificado[];
   mrpRequerimientos: RequerimientoMRPConNombre[];
   mrpMaterialesConCicloBOM: string[];
   tipoPeriodo: TipoReporte;
-  tendencia: PuntoTendencia[];
-  estadoActualKPIs: EstadoActualKPIs;
+  tendencia?: PuntoTendencia[];
+  estadoActualKPIs?: EstadoActualKPIs;
   kpisActivos: string[];
-  vistas: VistaGuardada[];
+  vistas?: VistaGuardada[];
   tabInicial?: TabId;
-  aiInsightsConfigurado: boolean;
+  aiInsightsConfigurado?: boolean;
 }) {
-  const [tab, setTab] = useState<TabId>(tabInicial ?? "reportes");
+  const TABS = esAdmin ? TODAS_LAS_TABS : TODAS_LAS_TABS.filter((t) => !t.soloAdmin);
+  const primeraTab = TABS[0].id;
+  const [tab, setTab] = useState<TabId>(
+    tabInicial && TABS.some((t) => t.id === tabInicial) ? tabInicial : primeraTab
+  );
 
   return (
     <div className="p-4 md:p-8">
@@ -91,7 +113,7 @@ export function AnalisisView({
         ))}
       </div>
 
-      {tab === "reportes" && (
+      {esAdmin && tab === "reportes" && reportes && materiales && historial && (
         <ReportesView
           reportes={reportes}
           diasParado={diasParado}
@@ -106,7 +128,7 @@ export function AnalisisView({
           materialesConCicloBOM={mrpMaterialesConCicloBOM}
         />
       )}
-      {tab === "dashboard" && (
+      {esAdmin && tab === "dashboard" && tendencia && estadoActualKPIs && vistas && (
         <KpiDashboardView
           tipo={tipoPeriodo}
           tendencia={tendencia}
@@ -115,8 +137,8 @@ export function AnalisisView({
           vistas={vistas}
         />
       )}
-      {tab === "ai-insights" && (
-        <AiInsightsView configurado={aiInsightsConfigurado} />
+      {esAdmin && tab === "ai-insights" && (
+        <AiInsightsView configurado={aiInsightsConfigurado ?? false} />
       )}
     </div>
   );

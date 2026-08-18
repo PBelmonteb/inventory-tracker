@@ -35,6 +35,14 @@ export function esGestor(profile: Profile | null): boolean {
   return profile?.rol === "admin" || profile?.rol === "gerente";
 }
 
+/** True solo para admin (el dueño) — distinto de esGestor(), que también
+ *  incluye a gerente (el encargado). Usar cuando algo es territorio de
+ *  dueño: usuarios/roles, auditoría, precios, umbral de autorización,
+ *  reportes financieros con margen. Ver vista Administración/Análisis. */
+export function esAdmin(profile: Profile | null): boolean {
+  return profile?.rol === "admin";
+}
+
 /** True si el perfil puede autorizar/rechazar casos de compra, gestionar
  *  proveedores/convenios y elegir cotización ganadora — gestor o compras.
  *  NO da acceso a materiales/usuarios/costos (eso sigue siendo esGestor). */
